@@ -2,11 +2,7 @@ pipeline {
     agent any
 
     environment {
-        // Docker registry configurations (defaulting to Docker Hub)
-        DOCKER_REGISTRY = 'docker.io'
-        IMAGE_NAME      = 'cinequery-ai-flowise'
-        IMAGE_TAG       = "${BUILD_NUMBER}"
-        REGISTRY_CREDENTIALS_ID = 'docker-hub-credentials'
+        GITHUB_REPO = https://github.com/Yokesh333/FilmInsight-AI-Movie-Understanding-Assistant-using-LLMs.git
     }
 
     stages {
