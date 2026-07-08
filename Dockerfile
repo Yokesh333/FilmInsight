@@ -10,8 +10,13 @@ COPY ["500DaysofSummer Chatflow.json", "/app/"]
 COPY import-chatflow.js /app/
 COPY start.sh /app/
 
-# Convert entrypoint script line endings to Unix LF and make it executable
-RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
+# Convert entrypoint script line endings to Unix LF, make it executable, and change owner to node
+RUN sed -i 's/\r$//' /app/start.sh && \
+    chmod +x /app/start.sh && \
+    chown -R node:node /app
+
+# Switch back to the node user
+USER node
 
 # Expose server port
 EXPOSE 3000

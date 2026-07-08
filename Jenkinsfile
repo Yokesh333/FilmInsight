@@ -51,6 +51,10 @@ pipeline {
                         sh "sleep 15"
                         sh "curl --retry 5 --retry-delay 3 http://localhost:9000/api/v1/ping"
                         sh "curl -s http://localhost:9000/api/v1/chatflows | grep '500 Days of Summer Chatflow'"
+                    } catch (Exception e) {
+                        echo "=== Container logs on failure ==="
+                        sh "docker logs verify-flowise || true"
+                        throw e
                     } finally {
                         sh "docker rm -f verify-flowise || true"
                     }
