@@ -1,21 +1,8 @@
-FROM node:20-alpine
+FROM flowiseai/flowise:latest
 
-# Install system dependencies needed for Flowise and canvas/chromium components
-RUN apk add --no-cache git python3 py3-pip make g++ build-base cairo-dev pango-dev chromium curl
+USER root
 
-# Skip downloading Puppeteer chrome; use system chromium
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-
-# Set environment variables for Flowise
-ENV FLOWISE_PATH=/usr/local/lib/node_modules/flowise
-ENV BASE_PATH=/root/.flowise
-ENV PORT=9000
-
-# Install Flowise globally
-RUN npm install -g flowise
-
-# Set working directory
+# Set working directory to /app
 WORKDIR /app
 
 # Copy chatflow config, import script, and entrypoint

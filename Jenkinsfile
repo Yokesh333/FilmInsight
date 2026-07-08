@@ -2,14 +2,11 @@ pipeline {
     agent any
 
     environment {
-        // Repository URL (properly quoted to avoid syntax errors)
+        // Repository URL
         GITHUB_REPO = 'https://github.com/Yokesh333/FilmInsight-AI-Movie-Understanding-Assistant-using-LLMs.git'
 
-        // Docker registry configurations (defaulting to Docker Hub)
-        DOCKER_REGISTRY = 'docker.io'
         IMAGE_NAME      = 'cinequery-ai-flowise'
         IMAGE_TAG       = "${BUILD_NUMBER}"
-        REGISTRY_CREDENTIALS_ID = 'docker-hub-credentials'
     }
 
     stages {
@@ -50,30 +47,12 @@ pipeline {
                 echo 'Verifying that Flowise starts up correctly and the import logic works...'
                 script {
                     try {
-                        sh "docker run -d --name verify-flowise -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "docker run -d --name verify-flowise -p 9000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
                         sh "sleep 15"
-                        sh "curl --retry 5 --retry-delay 3 http://localhost:3000/api/v1/ping"
-                        sh "curl -s http://localhost:3000/api/v1/chatflows | grep '500 Days of Summer Chatflow'"
+                        sh "curl --retry 5 --retry-delay 3 http://localhost:9000/api/v1/ping"
+                        sh "curl -s http://localhost:9000/api/v1/chatflows | grep '500 Days of Summer Chatflow'"
                     } finally {
                         sh "docker rm -f verify-flowise || true"
-                    }
-                }
-            }
-        }
-
-        stage('Push to Registry') {
-            when {
-                branch 'main'
-            }
-            steps {
-                echo "Pushing image to registry ${DOCKER_REGISTRY}..."
-                script {
-                    withCredentials([usernamePassword(credentialsId: REGISTRY_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh "docker login -u ${DOCKER_USER} -p ${DOCKER_PASS} ${DOCKER_REGISTRY}"
-                        sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-                        sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
-                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
                     }
                 }
             }
@@ -84,11 +63,9 @@ pipeline {
                 branch 'main'
             }
             steps {
-                echo 'Deploying to staging/production environment...'
-                // Customize this stage with your own deployment command.
-                // Examples:
-                // sh 'docker compose down && docker compose up -d'
-                // sh 'kubectl rollout restart deployment/flowise-deployment'
+                echo 'Deploying Flowise container locally...'
+                sh "docker rm -f cinequery-ai-flowise || true"
+                sh "docker run -d --name cinequery-ai-flowise -p 9000:3000 --restart always ${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
     }
