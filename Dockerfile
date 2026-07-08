@@ -18,6 +18,13 @@ RUN sed -i 's/\r$//' /app/start.sh && \
 # Switch back to the node user
 USER node
 
+# Set Flowise directories to writable paths owned by node user
+ENV DATABASE_PATH=/data
+ENV APIKEY_PATH=/data
+ENV SECRETKEY_PATH=/data
+ENV LOG_PATH=/data/logs
+ENV BLOB_STORAGE_PATH=/data/storage
+
 # Expose server port
 EXPOSE 3000
 
