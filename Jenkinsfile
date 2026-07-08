@@ -22,8 +22,19 @@ pipeline {
         stage('Lint & Validate') {
             steps {
                 echo 'Validating chatflow JSON configuration...'
-                // Simple validation to ensure the JSON is not malformed
-                sh 'node -e "JSON.parse(require(\'fs\').readFileSync(\'500DaysofSummer Chatflow.json\', \'utf8\'))"'
+                sh '''
+                    if command -v python3 >/dev/null 2>&1; then
+                        python3 -c "import json; json.load(open('500DaysofSummer Chatflow.json'))"
+                    elif command -v python >/dev/null 2>&1; then
+                        python -c "import json; json.load(open('500DaysofSummer Chatflow.json'))"
+                    elif command -v jq >/dev/null 2>&1; then
+                        jq . "500DaysofSummer Chatflow.json" >/dev/null
+                    elif command -v node >/dev/null 2>&1; then
+                        node -e "JSON.parse(require('fs').readFileSync('500DaysofSummer Chatflow.json', 'utf8'))"
+                    else
+                        echo "Warning: No JSON validator (python3, python, jq, node) found. Skipping validation."
+                    fi
+                '''
             }
         }
 
