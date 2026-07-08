@@ -6,7 +6,7 @@ USER root
 WORKDIR /app
 
 # Copy chatflow config, import script, and entrypoint
-COPY "500DaysofSummer Chatflow.json" /app/
+COPY ["500DaysofSummer Chatflow.json", "/app/"]
 COPY import-chatflow.js /app/
 COPY start.sh /app/
 
