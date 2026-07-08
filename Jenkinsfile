@@ -41,13 +41,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
-                script {
-                    // Standard Pipeline syntax (requires Docker Pipeline plugin):
-                    app = docker.build("${IMAGE_NAME}:${IMAGE_TAG}", "-f Dockerfile .")
-                    
-                    // Backup shell command if the Docker Pipeline plugin is not installed:
-                    // sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
-                }
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
             }
         }
 
@@ -55,22 +49,14 @@ pipeline {
             steps {
                 echo 'Verifying that Flowise starts up correctly and the import logic works...'
                 script {
-                    // Standard Pipeline syntax (requires Docker Pipeline plugin):
-                    docker.image("${IMAGE_NAME}:${IMAGE_TAG}").withRun('-p 3000:3000') { c ->
-                        // Wait for server initialization
-                        sh 'sleep 15'
-                        // Hit the ping endpoint to verify container health
-                        sh 'curl --retry 5 --retry-delay 3 http://localhost:3000/api/v1/ping'
-                        // Check if the chatflow was successfully imported
-                        sh 'curl -s http://localhost:3000/api/v1/chatflows | grep "500 Days of Summer Chatflow"'
+                    try {
+                        sh "docker run -d --name verify-flowise -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "sleep 15"
+                        sh "curl --retry 5 --retry-delay 3 http://localhost:3000/api/v1/ping"
+                        sh "curl -s http://localhost:3000/api/v1/chatflows | grep '500 Days of Summer Chatflow'"
+                    } finally {
+                        sh "docker rm -f verify-flowise || true"
                     }
-
-                    // Backup shell command alternative:
-                    // sh "docker run -d --name verify-flowise -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
-                    // sh "sleep 15"
-                    // sh "curl --retry 5 --retry-delay 3 http://localhost:3000/api/v1/ping"
-                    // sh "curl -s http://localhost:3000/api/v1/chatflows | grep '500 Days of Summer Chatflow'"
-                    // sh "docker rm -f verify-flowise"
                 }
             }
         }
@@ -82,18 +68,13 @@ pipeline {
             steps {
                 echo "Pushing image to registry ${DOCKER_REGISTRY}..."
                 script {
-                    // Standard Pipeline syntax:
-                    docker.withRegistry("https://${DOCKER_REGISTRY}", REGISTRY_CREDENTIALS_ID) {
-                        app.push("${IMAGE_TAG}")
-                        app.push("latest")
+                    withCredentials([usernamePassword(credentialsId: REGISTRY_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh "docker login -u ${DOCKER_USER} -p ${DOCKER_PASS} ${DOCKER_REGISTRY}"
+                        sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
+                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
                     }
-
-                    // Backup shell command alternative:
-                    // sh "docker login -u \$DOCKER_USER -p \$DOCKER_PASS ${DOCKER_REGISTRY}"
-                    // sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-                    // sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
-                    // sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-                    // sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
                 }
             }
         }
