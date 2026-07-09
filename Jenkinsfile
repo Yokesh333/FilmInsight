@@ -3,10 +3,11 @@ pipeline {
 
     environment {
         // Repository URL
-        GITHUB_REPO = 'https://github.com/Yokesh333/FilmInsight-AI-Movie-Understanding-Assistant-using-LLMs.git'
+        GITHUB_REPO    = 'https://github.com/Yokesh333/FilmInsight-AI-Movie-Understanding-Assistant-using-LLMs.git'
 
-        IMAGE_NAME      = 'cinequery-ai-flowise'
-        IMAGE_TAG       = "${BUILD_NUMBER}"
+        IMAGE_NAME     = 'cinequery-ai-flowise'
+        IMAGE_TAG      = "${BUILD_NUMBER}"
+        CHATBOT_IMAGE  = 'filminsight-chatbot'
     }
 
     stages {
@@ -140,14 +141,30 @@ http.get({ hostname: \'localhost\', port: 3000, path: \'/api/v1/chatflows\', hea
                 sh "docker run -d --name cinequery-ai-flowise -p 9000:3000 --restart always ${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
+
+        stage('Deploy Chatbot Frontend') {
+            steps {
+                echo 'Building and deploying the FilmInsight AI chatbot frontend...'
+                // Build the lightweight nginx image from Dockerfile.chatbot
+                sh "docker build -t ${CHATBOT_IMAGE}:${IMAGE_TAG} -f Dockerfile.chatbot ."
+                sh "docker rm -f filminsight-chatbot || true"
+                // --add-host lets nginx inside the container resolve host.docker.internal
+                // to the Docker host IP, so /api/ requests proxy to Flowise on port 9000.
+                sh """docker run -d --name filminsight-chatbot \
+                    -p 5000:80 \
+                    --add-host=host.docker.internal:host-gateway \
+                    --restart always \
+                    ${CHATBOT_IMAGE}:${IMAGE_TAG}"""
+                echo 'Chatbot UI is live at http://YOUR_SERVER_IP:5000'
+            }
+        }
     }
 
     post {
         always {
-            echo 'Removing the built app image tag to free disk space...'
-            // Only untag the app image — do NOT delete the base flowise image layers.
-            // Keeping the base layers means the next build skips the 36-min download.
+            echo 'Removing built image tags to free disk space...'
             sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+            sh "docker rmi ${CHATBOT_IMAGE}:${IMAGE_TAG} || true"
         }
         success {
             echo 'Jenkins Pipeline completed successfully! CineQuery AI deployed.'
