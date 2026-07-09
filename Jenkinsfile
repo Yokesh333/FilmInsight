@@ -38,9 +38,10 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
-                // --pull=missing: only pull the base image if it isn't cached locally.
-                // This avoids the 36-minute re-download on every build.
-                sh "docker build --pull=missing -t ${IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
+                // Legacy builder (non-BuildKit) uses local layer cache by default.
+                // Omitting --pull avoids re-downloading the base image on every build,
+                // cutting build time from 36 min → ~1-2 min after the first run.
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
             }
         }
 
