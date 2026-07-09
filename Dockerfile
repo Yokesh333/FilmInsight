@@ -1,4 +1,7 @@
-FROM flowiseai/flowise:latest
+# Pin to a specific stable release to avoid broken :latest regressions.
+# v2.2.7 is the last release before the @langchain/core ./utils/uuid subpath
+# was removed from the exports map, which caused ERR_PACKAGE_PATH_NOT_EXPORTED.
+FROM flowiseai/flowise:2.2.7
 
 USER root
 

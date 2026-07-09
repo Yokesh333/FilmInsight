@@ -38,7 +38,9 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
-                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
+                // --pull=missing: only pull the base image if it isn't cached locally.
+                // This avoids the 36-minute re-download on every build.
+                sh "docker build --pull=missing -t ${IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
             }
         }
 
@@ -48,9 +50,13 @@ pipeline {
                 script {
                     try {
                         sh "docker run -d --name verify-flowise -p 9000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
-                        sh "sleep 15"
-                        sh "curl --retry 5 --retry-delay 3 http://localhost:9000/api/v1/ping"
-                        sh "curl -s http://localhost:9000/api/v1/chatflows | grep '500 Days of Summer Chatflow'"
+                        // Flowise initialises the DB, runs migrations, and loads all
+                        // nodes before it binds to the port — 45s is a safe minimum.
+                        sh "sleep 45"
+                        // --retry-connrefused: keep retrying even on 'Connection refused',
+                        // not just on transient HTTP errors.
+                        sh "curl --retry 10 --retry-delay 5 --retry-connrefused http://localhost:9000/api/v1/ping"
+                        sh "curl -sf http://localhost:9000/api/v1/chatflows | grep '500 Days of Summer Chatflow'"
                     } catch (Exception e) {
                         echo "=== Container logs on failure ==="
                         sh "docker logs verify-flowise || true"
@@ -76,8 +82,10 @@ pipeline {
 
     post {
         always {
-            echo 'Cleaning up built images locally to save disk space...'
-            sh "docker rmi -f ${IMAGE_NAME}:${IMAGE_TAG} || true"
+            echo 'Removing the built app image tag to free disk space...'
+            // Only untag the app image — do NOT delete the base flowise image layers.
+            // Keeping the base layers means the next build skips the 36-min download.
+            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
         }
         success {
             echo 'Jenkins Pipeline completed successfully! CineQuery AI deployed.'
