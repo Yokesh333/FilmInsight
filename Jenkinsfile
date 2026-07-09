@@ -138,7 +138,16 @@ http.get({ hostname: \'localhost\', port: 3000, path: \'/api/v1/chatflows\', hea
             steps {
                 echo 'Deploying Flowise container locally...'
                 sh "docker rm -f cinequery-ai-flowise || true"
-                sh "docker run -d --name cinequery-ai-flowise -p 9000:3000 --restart always ${IMAGE_NAME}:${IMAGE_TAG}"
+                // Credentials activate Flowise v2 Identity Manager so the management API
+                // accepts requests. The same credentials are picked up by import-chatflow.js
+                // (via getAuthHeaders) and by nginx (hardcoded Basic auth header in nginx.conf).
+                // Flowise admin UI: http://YOUR_SERVER:9000  login: admin / filminsight2025
+                sh """docker run -d --name cinequery-ai-flowise \
+                    -p 9000:3000 \
+                    -e FLOWISE_USERNAME=admin \
+                    -e FLOWISE_PASSWORD=filminsight2025 \
+                    --restart always \
+                    ${IMAGE_NAME}:${IMAGE_TAG}"""
             }
         }
 
