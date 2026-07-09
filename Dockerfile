@@ -13,10 +13,16 @@ COPY ["500DaysofSummer Chatflow.json", "/app/"]
 COPY import-chatflow.js /app/
 COPY start.sh /app/
 
-# Convert entrypoint script line endings to Unix LF, make it executable, and change owner to node
-RUN sed -i 's/\r$//' /app/start.sh && \
+# Pre-create all Flowise data directories while still root.
+# Flowise's logger.js calls mkdirSync() WITHOUT {recursive: true}, so if
+# /home/node/.flowise (or any subdirectory) doesn't exist at startup it
+# throws ENOENT and the process exits before binding to port 3000.
+RUN mkdir -p \
+      /home/node/.flowise/logs \
+      /home/node/.flowise/storage && \
+    sed -i 's/\r$//' /app/start.sh && \
     chmod +x /app/start.sh && \
-    chown -R node:node /app
+    chown -R node:node /app /home/node/.flowise
 
 # Switch back to the node user
 USER node
