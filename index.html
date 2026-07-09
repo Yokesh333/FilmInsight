@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FilmInsight AI — 500 Days of Summer</title>
-  <meta name="description" content="Explore 500 Days of Summer through AI. Ask about characters, themes, narrative, and more." />
+  <title>FilmInsight AI — Movie Understanding Assistant</title>
+  <meta name="description" content="Explore movies through AI. Ask about characters, themes, narrative, and more." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,700;1,400&display=swap" rel="stylesheet" />
   <style>
@@ -153,7 +153,6 @@
         <div class="htitle">FilmInsight AI</div>
         <div class="hsub"><span class="dot"></span>Movie Understanding Assistant</div>
       </div>
-      <div class="badge">500 Days of Summer</div>
     </header>
 
     <div class="chat" id="chat">
@@ -167,23 +166,23 @@
         </div>
         <div class="wtitle">Explore Cinema with AI</div>
         <p class="wdesc">
-          Dive deep into <em>500 Days of Summer</em> — ask about characters,
-          themes, narrative structure, symbolism, and what the ending truly means.
+          Ask anything about the movies in our collection — characters, themes,
+          narrative structure, symbolism, and deeper meaning. More films are added regularly.
         </p>
         <div class="chips">
-          <div class="chip" onclick="suggest(this)">What is the movie about?</div>
-          <div class="chip" onclick="suggest(this)">Explain Tom and Summer's relationship</div>
-          <div class="chip" onclick="suggest(this)">What are the main themes?</div>
-          <div class="chip" onclick="suggest(this)">Analyse the non-linear narrative</div>
-          <div class="chip" onclick="suggest(this)">What does the ending mean?</div>
-          <div class="chip" onclick="suggest(this)">Expectations vs. Reality scene</div>
+          <div class="chip" onclick="suggest(this)">What movies are available?</div>
+          <div class="chip" onclick="suggest(this)">Tell me about the main characters</div>
+          <div class="chip" onclick="suggest(this)">What are the central themes?</div>
+          <div class="chip" onclick="suggest(this)">Explain the narrative structure</div>
+          <div class="chip" onclick="suggest(this)">What is the ending about?</div>
+          <div class="chip" onclick="suggest(this)">Recommend something to watch next</div>
         </div>
       </div>
     </div>
 
     <div class="input-area">
       <div class="input-row">
-        <textarea id="inp" placeholder="Ask anything about 500 Days of Summer…" rows="1"
+        <textarea id="inp" placeholder="Ask about any movie in our collection…" rows="1"
           onkeydown="onKey(event)" oninput="resize(this)"></textarea>
         <button class="send-btn" id="sendBtn" onclick="send()" title="Send">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -198,21 +197,33 @@
   </div>
 
   <script>
-    const API_BASE      = '/api';
+    const API_BASE = '/api';
+
+    // ── Chatflow config ──────────────────────────────────────────────────────
+    // Option A (recommended): leave CHATFLOW_ID empty — the app auto-discovers
+    //   the chatflow ID from Flowise by name.
+    // Option B: paste the chatflow ID from Flowise admin URL here to bypass
+    //   auto-discovery entirely (useful when the API returns auth errors).
+    //   Example: const CHATFLOW_ID = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
+    const CHATFLOW_ID   = '';   // ← paste ID here to skip auto-discovery
     const CHATFLOW_NAME = '500 Days of Summer Chatflow';
-    const sessionId     = 'si_' + Math.random().toString(36).slice(2, 10);
-    let chatflowId = null, busy = false;
+    // ────────────────────────────────────────────────────────────────────────
+
+    const sessionId = 'si_' + Math.random().toString(36).slice(2, 10);
+    let chatflowId = CHATFLOW_ID || null, busy = false;
 
     async function init() {
+      // Skip auto-discovery if chatflow ID was hardcoded above
+      if (chatflowId) return;
       try {
         const r    = await fetch(`${API_BASE}/chatflows`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const list = await r.json();
         const cf   = list.find(c => c.name === CHATFLOW_NAME);
         if (cf) { chatflowId = cf.id; }
-        else { addMsg('bot', 'Chatflow is still being imported. Please wait ~30s and refresh the page.', true); }
+        else { addMsg('bot', 'No chatflow found yet — the import runs in the background after startup. Refresh in ~30s.', true); }
       } catch (e) {
-        addMsg('bot', `Could not reach Flowise API: ${e.message}`, true);
+        addMsg('bot', `API error (${e.message}). If this persists, ask your admin to paste the chatflow ID into index.html.`, true);
       }
     }
 
