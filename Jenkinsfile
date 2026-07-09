@@ -50,39 +50,77 @@ pipeline {
                 echo 'Verifying that Flowise starts up correctly and the import logic works...'
                 script {
                     try {
-                        // Pass CI credentials so Flowise v2 Identity Manager allows API access.
-                        // import-chatflow.js reads these same env vars to add Basic auth headers.
+                        // No port mapping needed — health checks run INSIDE the container.
                         sh """docker run -d --name verify-flowise \
                             -e FLOWISE_USERNAME=ci_admin \
                             -e FLOWISE_PASSWORD=ci_test_pass \
                             ${IMAGE_NAME}:${IMAGE_TAG}"""
 
-                        // Flowise initialises the DB, runs migrations, and loads all
-                        // nodes before it binds to the port — 45s is a safe minimum.
                         sh "sleep 45"
 
-                        // Jenkins runs INSIDE a Docker container itself, so 'localhost'
-                        // refers to the Jenkins container — NOT the Docker host where the
-                        // verify-flowise container's mapped port 9000 lives.
-                        // Solution: get the container's bridge IP via docker inspect and
-                        // curl port 3000 directly — this always works across Docker networks.
-                        def flowiseIP = sh(
-                            returnStdout: true,
-                            script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' verify-flowise"
-                        ).trim()
-                        echo "Flowise container bridge IP: ${flowiseIP}"
+                        // WHY docker exec + node instead of curl:
+                        // Jenkins itself runs inside a Docker container on a different
+                        // network. Curling localhost (Jenkins container) or the bridge IP
+                        // (blocked by iptables across networks) both fail. The only
+                        // reliable approach is to run the check INSIDE verify-flowise via
+                        // docker exec — localhost:3000 is always reachable there.
+                        sh '''docker exec verify-flowise node -e "
+const http = require(\'http\');
+const u = process.env.FLOWISE_USERNAME;
+const p = process.env.FLOWISE_PASSWORD;
+const auth = (u && p)
+  ? { Authorization: \'Basic \' + Buffer.from(u + \':\' + p).toString(\'base64\') }
+  : {};
+let attempt = 0;
+const check = () => {
+  attempt++;
+  if (attempt > 20) { console.error(\'Flowise did not become healthy in time.\'); process.exit(1); }
+  http.get({ hostname: \'localhost\', port: 3000, path: \'/api/v1/ping\', headers: auth }, (r) => {
+    if (r.statusCode === 200) {
+      console.log(\'Flowise is healthy (attempt \' + attempt + \')\');
+      process.exit(0);
+    }
+    console.log(\'Attempt \' + attempt + \' — HTTP \' + r.statusCode + \', retrying in 3s...\');
+    setTimeout(check, 3000);
+  }).on(\'error\', (err) => {
+    console.log(\'Attempt \' + attempt + \' — \' + err.message + \', retrying in 3s...\');
+    setTimeout(check, 3000);
+  });
+};
+check();
+"'''
 
-                        // Verify Flowise is up and the HTTP server is responding.
-                        sh "curl --retry 10 --retry-delay 5 --retry-connrefused http://${flowiseIP}:3000/api/v1/ping"
-
-                        // The chatflow import runs in the background inside the container.
-                        // Give it extra time to complete, then verify — non-blocking so a
-                        // slow import doesn't fail the build (it will finish post-deploy).
+                        // Allow extra time for the background chatflow import to finish.
                         sh "sleep 20"
-                        sh """curl -sf -u ci_admin:ci_test_pass \
-                            http://${flowiseIP}:3000/api/v1/chatflows \
-                            | grep '500 Days of Summer Chatflow' \
-                            || echo 'INFO: Chatflow import still in progress — will complete after container fully starts.'"""
+
+                        // Non-blocking chatflow presence check (import is a background
+                        // process and may still be in progress at this point).
+                        sh '''docker exec verify-flowise node -e "
+const http = require(\'http\');
+const u = process.env.FLOWISE_USERNAME;
+const p = process.env.FLOWISE_PASSWORD;
+const auth = (u && p)
+  ? { Authorization: \'Basic \' + Buffer.from(u + \':\' + p).toString(\'base64\') }
+  : {};
+http.get({ hostname: \'localhost\', port: 3000, path: \'/api/v1/chatflows\', headers: auth }, (r) => {
+  let body = \'\';
+  r.on(\'data\', (c) => body += c);
+  r.on(\'end\', () => {
+    if (r.statusCode !== 200) {
+      console.log(\'Chatflows API returned HTTP \' + r.statusCode + \' — skipping check.\');
+      process.exit(0);
+    }
+    const found = body.includes(\'500 Days of Summer\');
+    console.log(found
+      ? \'✅ Chatflow imported successfully!\'
+      : \'ℹ️  Chatflow import still in progress — will complete after deploy.\');
+    process.exit(0);
+  });
+}).on(\'error\', (e) => {
+  console.log(\'Chatflows check skipped: \' + e.message);
+  process.exit(0);
+});
+"'''
 
                     } catch (Exception e) {
                         echo "=== Container logs on failure ==="
