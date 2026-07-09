@@ -1,6 +1,18 @@
 const fs = require('fs');
 const http = require('http');
 
+// If FLOWISE_USERNAME / FLOWISE_PASSWORD are set (e.g. via docker run -e),
+// Flowise v2's Identity Manager requires Basic auth on all management API calls.
+// Returns an Authorization header when credentials are available, empty object otherwise.
+function getAuthHeaders() {
+  const u = process.env.FLOWISE_USERNAME;
+  const p = process.env.FLOWISE_PASSWORD;
+  if (u && p) {
+    return { 'Authorization': 'Basic ' + Buffer.from(`${u}:${p}`).toString('base64') };
+  }
+  return {};
+}
+
 const chatflowFile = '/app/500DaysofSummer Chatflow.json';
 if (!fs.existsSync(chatflowFile)) {
   console.error(`Chatflow file not found at ${chatflowFile}`);
@@ -21,14 +33,17 @@ function waitForFlowise(retries = 30, delay = 2000) {
   return new Promise((resolve, reject) => {
     const check = (attempt) => {
       console.log(`Checking if Flowise is ready (attempt ${attempt}/${retries})...`);
-      const req = http.get('http://localhost:3000/api/v1/ping', (res) => {
-        if (res.statusCode === 200) {
-          console.log('Flowise is ready!');
-          resolve();
-        } else {
-          retry(attempt);
+      const req = http.get(
+        { hostname: 'localhost', port: 3000, path: '/api/v1/ping', headers: getAuthHeaders() },
+        (res) => {
+          if (res.statusCode === 200) {
+            console.log('Flowise is ready!');
+            resolve();
+          } else {
+            retry(attempt);
+          }
         }
-      });
+      );
       req.on('error', () => retry(attempt));
       req.end();
     };
@@ -52,17 +67,20 @@ async function importChatflow() {
     // Check if chatflow already exists to prevent duplicate imports
     console.log('Checking existing chatflows...');
     const existingChatflows = await new Promise((resolve, reject) => {
-      const req = http.get('http://localhost:3000/api/v1/chatflows', (res) => {
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
-        res.on('end', () => {
-          if (res.statusCode === 200) {
-            resolve(JSON.parse(data));
-          } else {
-            reject(new Error(`Failed to get chatflows: Status ${res.statusCode}`));
-          }
-        });
-      });
+      const req = http.get(
+        { hostname: 'localhost', port: 3000, path: '/api/v1/chatflows', headers: getAuthHeaders() },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => data += chunk);
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              resolve(JSON.parse(data));
+            } else {
+              reject(new Error(`Failed to get chatflows: Status ${res.statusCode}`));
+            }
+          });
+        }
+      );
       req.on('error', reject);
       req.end();
     });
@@ -81,6 +99,7 @@ async function importChatflow() {
         path: '/api/v1/chatflows',
         method: 'POST',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(payload)
         }
