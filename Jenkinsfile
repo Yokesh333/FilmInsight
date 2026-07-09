@@ -134,9 +134,6 @@ http.get({ hostname: \'localhost\', port: 3000, path: \'/api/v1/chatflows\', hea
         }
 
         stage('Deploy') {
-            when {
-                branch 'main'
-            }
             steps {
                 echo 'Deploying Flowise container locally...'
                 sh "docker rm -f cinequery-ai-flowise || true"
