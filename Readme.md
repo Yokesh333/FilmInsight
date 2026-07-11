@@ -119,26 +119,113 @@ FilmInsight is an intelligent movie assistant that understands movie screenplays
 ```
 FilmInsight/
 │
-├── frontend/
+├── frontend/               ← React + Nginx (UI)
 │   ├── src/
 │   ├── public/
 │   ├── package.json
 │   └── Dockerfile
 │
-├── backend/
-│   ├── app.py
+├── backend/                ← FastAPI (REST API)
+│   ├── app/
 │   ├── requirements.txt
 │   └── Dockerfile
 │
-├── flowise/
+├── ingestion/              ← Automated RAG ingestion pipeline
+│   ├── config.py
+│   ├── pdf_loader.py
+│   ├── chunker.py
+│   ├── metadata_fetcher.py
+│   ├── embedding_generator.py
+│   ├── chroma_manager.py
+│   ├── ingest_movies.py
+│   ├── utils.py
+│   ├── processed_movies.json
+│   └── requirements.txt
 │
-├── screenshots/
+├── movie_scripts/          ← ⚠️  NOT in Git (see below)
+├── chroma_db/              ← ⚠️  NOT in Git (auto-generated)
+├── logs/                   ← ⚠️  NOT in Git
 │
-├── docker-compose.yml
+├── docker/
+│   └── docker-compose.yml
 │
 ├── Jenkinsfile
 │
 └── README.md
+```
+
+---
+
+## 🎬 Movie Scripts
+
+> **⚠️ Screenplay PDFs are NOT included in this repository due to copyright restrictions.**
+
+FilmInsight requires legally obtained screenplay PDFs to build its knowledge base.
+Follow these steps to set up the knowledge base:
+
+### Step 1 — Create the folder
+
+```bash
+mkdir movie_scripts
+```
+
+### Step 2 — Add screenplay PDFs
+
+Place your legally obtained PDF screenplays inside the `movie_scripts/` folder:
+
+```
+FilmInsight/
+└── movie_scripts/
+    ├── Interstellar.pdf
+    ├── The Dark Knight.pdf
+    ├── 500 Days of Summer.pdf
+    └── ...
+```
+
+> **Where to find screenplays legally:**
+> - [IMSDB](https://www.imsdb.com/) — Internet Movie Script Database
+> - [Simply Scripts](https://www.simplyscripts.com/)
+> - [ScreenCraft](https://screencraft.org/)
+> - Official studio press kits
+
+### Step 3 — Install ingestion dependencies
+
+```bash
+pip install -r ingestion/requirements.txt
+```
+
+### Step 4 — Run the ingestion pipeline
+
+```bash
+# From the project root
+python -m ingestion.ingest_movies
+```
+
+The pipeline will automatically:
+1. Scan `movie_scripts/` for new PDFs
+2. Extract text using PyMuPDF
+3. Split text into semantic chunks
+4. Fetch metadata from TMDb + OMDb
+5. Generate embeddings (`sentence-transformers/all-MiniLM-L6-v2`)
+6. Store everything in the Chroma vector database
+
+> **Resumable:** If interrupted, re-running processes only new or incomplete movies.
+
+### Pipeline output example
+
+```
+Scanning movie_scripts/...
+Found 3 PDFs.
+3 new movie(s) to process.
+
+[1/3] Processing Interstellar...
+  Fetching TMDb metadata...
+  Fetching OMDb metadata...
+  Generating embeddings...
+  Stored 182 chunks.
+  ✓ 'Interstellar' → 182 chunks stored.
+
+Done. 3 succeeded, 0 failed.
 ```
 
 ---

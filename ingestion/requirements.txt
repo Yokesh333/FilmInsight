@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FilmInsight — Ingestion Module Requirements
+# ─────────────────────────────────────────────────────────────────────────────
+# Install with:   pip install -r ingestion/requirements.txt
+# Python version: 3.10+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── PDF parsing ───────────────────────────────────────────────────────────────
+PyMuPDF>=1.23.0
+
+# ── Text splitting ────────────────────────────────────────────────────────────
+langchain-text-splitters>=0.2.0
+
+# ── Embeddings ────────────────────────────────────────────────────────────────
+langchain-huggingface>=0.0.3
+sentence-transformers>=2.7.0
+torch>=2.1.0               # CPU-only wheel is fine; remove if you manage torch yourself
+
+# ── Vector store ─────────────────────────────────────────────────────────────
+chromadb>=0.5.0
+
+# ── API clients ───────────────────────────────────────────────────────────────
+requests>=2.31.0
+
+# ── Environment & config ──────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Rich console output (optional but recommended) ────────────────────────────
+rich>=13.7.0
+
+# ── Type stubs (dev/IDE only — not needed at runtime) ────────────────────────
+# types-requests

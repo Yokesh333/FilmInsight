@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.routers import chat, movie, upload
 from app.models.schemas import HealthResponse, ServiceStatus
 from app.services.flowise import get_flowise_service
+from app.services.kb_startup import initialise_knowledge_base
 
 # ── Logging ─────────────────────────────────────────────────────
 logging.basicConfig(
@@ -28,9 +29,29 @@ async def lifespan(app: FastAPI):
     logger.info('═' * 50)
     logger.info('  FilmInsight API  — Starting up')
     logger.info('═' * 50)
+
     settings = get_settings()
     logger.info(f'  Flowise URL:  {settings.FLOWISE_URL}')
     logger.info(f'  Chatflow ID:  {settings.FLOWISE_CHATFLOW_ID or "(not set)"}')
+
+    # ── Knowledge-base initialisation ────────────────────────────
+    # Three-state decision tree (never crashes the application):
+    #   1. chroma_db exists → use it
+    #   2. movie_scripts has PDFs → auto-ingest, then use it
+    #   3. Neither → warn and continue with empty KB
+    try:
+        kb_state = initialise_knowledge_base()
+        app.state.kb_state = kb_state
+    except Exception as exc:  # noqa: BLE001
+        # Safety net — initialisation must never crash the server
+        logger.error(f'Knowledge-base initialisation raised an unexpected error: {exc}')
+        from app.services.kb_startup import KBState
+        app.state.kb_state = KBState(
+            status='error',
+            message=f'KB initialisation error: {exc}',
+            doc_count=0,
+        )
+
     yield
     logger.info('FilmInsight API — Shutting down')
 
@@ -98,6 +119,22 @@ async def health():
     )
 
 
+@app.get('/kb-status', tags=['Knowledge Base'])
+async def kb_status(request: Request):
+    """
+    Returns the current state of the Chroma knowledge base.
+
+    Possible statuses:
+    - **ready**  — Chroma DB is populated and ready for queries.
+    - **empty**  — No movie scripts or Chroma DB found. Queries will return no context.
+    - **error**  — Ingestion was attempted but failed (see message).
+    """
+    kb = getattr(request.app.state, 'kb_state', None)
+    if kb is None:
+        return {'status': 'unknown', 'message': 'KB state not yet initialised', 'doc_count': 0}
+    return kb.to_dict()
+
+
 @app.get('/', tags=['Root'])
 async def root():
     return {
@@ -105,4 +142,5 @@ async def root():
         'version': settings.APP_VERSION,
         'docs':    '/docs',
         'health':  '/health',
+        'kb':      '/kb-status',
     }

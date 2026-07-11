@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5000"]
 
+    # ── Knowledge-base paths ──────────────────────────────────────────────────
+    # Override via environment variables (set in docker-compose or Jenkinsfile).
+    # Defaults work for local development from the project root.
+    PROJECT_ROOT:           str = ""           # auto-detected in kb_startup if empty
+    MOVIE_SCRIPTS_DIR:      str = ""           # e.g. /data/movie_scripts in Docker
+    CHROMA_DB_DIR:          str = ""           # e.g. /data/chroma_db in Docker
+    CHROMA_COLLECTION_NAME: str = "filminsight_scripts"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

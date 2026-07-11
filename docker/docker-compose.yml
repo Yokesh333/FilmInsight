@@ -1,8 +1,23 @@
 version: '3.9'
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  FilmInsight — Docker Compose
+#
+#  Persistent volumes
+#  ──────────────────
+#  movie_scripts_data  →  screenplay PDFs  (bind-mounted from host)
+#  chroma_db_data      →  Chroma vector DB (survives container restarts)
+#  logs_data           →  application logs (survives container restarts)
+#  flowise_data        →  Flowise settings (survives container restarts)
+#
+#  NOTE: movie_scripts/ and chroma_db/ are NEVER committed to Git.
+#        Place screenplay PDFs in ./movie_scripts/ on the host before
+#        starting the stack for the first time.
+# ═══════════════════════════════════════════════════════════════════════════
+
 services:
 
-  # ── Flowise ──────────────────────────────────────────────────
+  # ── Flowise ──────────────────────────────────────────────────────────────
   flowise:
     image: flowiseai/flowise:latest
     container_name: filminsight-flowise
@@ -26,7 +41,9 @@ services:
       retries: 5
       start_period: 40s
 
-  # ── ChromaDB ─────────────────────────────────────────────────
+  # ── ChromaDB (standalone server — optional) ───────────────────────────────
+  # The backend also uses a local PersistentClient via the chroma_db volume.
+  # Keep this service if you want to expose Chroma over HTTP for Flowise.
   chromadb:
     image: chromadb/chroma:latest
     container_name: filminsight-chroma
@@ -34,7 +51,8 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - chroma_data:/chroma/chroma
+      # Shared volume: same data seen by the backend's PersistentClient
+      - chroma_db_data:/chroma/chroma
     networks:
       - filminsight
     environment:
@@ -47,11 +65,11 @@ services:
       retries: 5
       start_period: 15s
 
-  # ── FastAPI Backend ───────────────────────────────────────────
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
     container_name: filminsight-backend
     restart: always
     ports:
@@ -61,6 +79,22 @@ services:
       - FLOWISE_CHATFLOW_ID=${FLOWISE_CHATFLOW_ID}
       - FLOWISE_API_KEY=${FLOWISE_API_KEY:-}
       - ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:5000","http://host.docker.internal:5000"]
+      # ── Ingestion / KB paths (must match volume mount-points below) ────────
+      - PROJECT_ROOT=/app
+      - MOVIE_SCRIPTS_DIR=/data/movie_scripts
+      - CHROMA_DB_DIR=/data/chroma_db
+      - CHROMA_COLLECTION_NAME=${CHROMA_COLLECTION_NAME:-filminsight_scripts}
+      # ── Optional API keys for metadata fetching ────────────────────────────
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - OMDB_API_KEY=${OMDB_API_KEY:-}
+    volumes:
+      # ── Persistent data volumes ────────────────────────────────────────────
+      # movie_scripts: read-only in the backend (ingestion writes too, so rw)
+      - movie_scripts_data:/data/movie_scripts
+      # chroma_db: read-write (ingestion creates / backend reads)
+      - chroma_db_data:/data/chroma_db
+      # logs: persistent across restarts
+      - logs_data:/data/logs
     depends_on:
       flowise:
         condition: service_healthy
@@ -71,9 +105,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 60s   # extended: allows time for auto-ingestion on first boot
 
-  # ── React Frontend (Nginx) ────────────────────────────────────
+  # ── React Frontend (Nginx) ────────────────────────────────────────────────
   frontend:
     build:
       context: ../frontend
@@ -93,14 +127,34 @@ services:
       timeout: 10s
       retries: 3
 
-# ── Volumes ───────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+#  Named Volumes
+#  ─────────────────────────────────────────────────────────────────────────
+#  All data volumes use the local driver so Docker manages the paths.
+#  On Oracle Cloud / any Linux host this resolves to:
+#    /var/lib/docker/volumes/<project>_<name>/_data
+#
+#  To pre-seed movie_scripts, copy PDFs to the host path BEFORE first
+#  docker compose up, or mount the host directory with a bind mount:
+#
+#  movie_scripts_data:
+#    driver: local
+#    driver_opts:
+#      type: none
+#      o: bind
+#      device: /opt/filminsight/movie_scripts
+# ══════════════════════════════════════════════════════════════════════════
 volumes:
   flowise_data:
     driver: local
-  chroma_data:
+  movie_scripts_data:
+    driver: local
+  chroma_db_data:
+    driver: local
+  logs_data:
     driver: local
 
-# ── Networks ──────────────────────────────────────────────────
+# ── Networks ──────────────────────────────────────────────────────────────
 networks:
   filminsight:
     driver: bridge
