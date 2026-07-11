@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, MessageCircle, Film, Clock, ChevronRight, Trash2 } from 'lucide-react'
+import { Plus, MessageCircle, Film, Clock, Trash2, Loader2 } from 'lucide-react'
+import { useChat } from '../context/ChatContext'
+import { movieAPI } from '../services/api'
 import MovieDetailsCard from './MovieDetailsCard'
 import TriviaCard from './TriviaCard'
 import CastCard from './CastCard'
@@ -8,19 +10,95 @@ import QuoteCard from './QuoteCard'
 
 const HISTORY_MOCK = [
   { id: 1, title: 'Why did Summer leave Tom?',          time: '2m ago' },
-  { id: 2, title: 'Explain Inception\'s ending',        time: '1h ago' },
+  { id: 2, title: "Explain Inception's ending",         time: '1h ago' },
   { id: 3, title: 'Character analysis of Joker',        time: 'Yesterday' },
   { id: 4, title: 'Themes in Interstellar',             time: 'Yesterday' },
 ]
 
 const SIDEBAR_TABS = ['Movie', 'Cast', 'Quotes', 'Trivia']
 
-export default function Sidebar({ onNewChat, currentQuestion }) {
+// Extract a movie title from a user message
+function extractMovieTitle(text) {
+  const lower = text.toLowerCase()
+  const knownMovies = [
+    'inception', 'interstellar', 'the dark knight', 'batman begins',
+    'memento', 'tenet', 'oppenheimer', 'the prestige', 'dunkirk',
+    '500 days of summer', 'deadpool', 'spider-man', 'beauty and the beast',
+    'bones and all', 'superman', 'frankenstein', 'hamnet', 'the dark knight rises',
+    'project hail mary',
+  ]
+  for (const title of knownMovies) {
+    if (lower.includes(title)) return title
+  }
+  // Try to extract quoted titles
+  const quoted = text.match(/[""]([^""]+)[""]/)?.[1]
+  if (quoted) return quoted
+  return null
+}
+
+export default function Sidebar({ onNewChat }) {
+  const { messages, movieContext, setMovieContext } = useChat()
   const [activeTab,  setActiveTab]  = useState('Movie')
   const [history,    setHistory]    = useState(HISTORY_MOCK)
   const [historyTab, setHistoryTab] = useState('history') // 'history' | 'info'
+  const [movieData,  setMovieData]  = useState(null)
+  const [fetching,   setFetching]   = useState(false)
 
   const removeHistory = (id) => setHistory(h => h.filter(i => i.id !== id))
+
+  // Auto-detect movie from messages and fetch details
+  useEffect(() => {
+    const userMessages = messages.filter(m => m.role === 'user')
+    if (userMessages.length === 0) return
+
+    const lastMsg = userMessages[userMessages.length - 1].content
+    const title   = extractMovieTitle(lastMsg)
+
+    if (!title || title === movieContext?.titleKey) return
+
+    setFetching(true)
+    movieAPI.getMovieDetails(title)
+      .then((data) => {
+        setMovieData(data)
+        setMovieContext({ ...data, titleKey: title })
+      })
+      .catch(() => {
+        // silently fail — sidebar just shows default
+      })
+      .finally(() => setFetching(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages])
+
+  // Sync from movieContext if set externally
+  useEffect(() => {
+    if (movieContext && !movieData) {
+      setMovieData(movieContext)
+    }
+  }, [movieContext, movieData])
+
+  // Build sidebar card data from API response
+  const sidebarMovie = movieData
+    ? {
+        title:    movieData.title,
+        year:     movieData.year,
+        rating:   movieData.rating,
+        runtime:  movieData.runtime,
+        genre:    Array.isArray(movieData.genre) ? movieData.genre : (movieData.genre ? [movieData.genre] : []),
+        director: movieData.director,
+        cast:     Array.isArray(movieData.cast) ? movieData.cast : (movieData.cast ? [movieData.cast] : []),
+        plot:     movieData.plot || movieData.overview,
+        awards:   movieData.awards,
+        poster:   movieData.poster,
+        backdrop: movieData.backdrop,
+        tagline:  movieData.tagline,
+        imdb_id:  movieData.imdb_id,
+        status:   'loaded',
+      }
+    : undefined
+
+  const triviaItems = (movieData?.trivia || []).map(fact => ({ fact, tag: 'Behind the Scenes' }))
+  const quoteItems  = movieData?.quotes || []
+  const castItems   = sidebarMovie?.cast.map(name => ({ name, role: '' })) || []
 
   return (
     <div className="flex flex-col h-full gap-3 px-3 py-4">
@@ -95,6 +173,14 @@ export default function Sidebar({ onNewChat, currentQuestion }) {
             transition={{ duration: 0.2 }}
             className="flex-1 overflow-y-auto min-h-0 space-y-3"
           >
+            {/* Fetching indicator */}
+            {fetching && (
+              <div className="flex items-center gap-2 text-xs text-film-muted px-2">
+                <Loader2 size={12} className="animate-spin" />
+                Fetching movie data…
+              </div>
+            )}
+
             {/* Sub-tabs */}
             <div className="grid grid-cols-4 gap-1">
               {SIDEBAR_TABS.map((t) => (
@@ -118,10 +204,10 @@ export default function Sidebar({ onNewChat, currentQuestion }) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                {activeTab === 'Movie'  && <MovieDetailsCard />}
-                {activeTab === 'Cast'   && <CastCard />}
-                {activeTab === 'Quotes' && <QuoteCard />}
-                {activeTab === 'Trivia' && <TriviaCard />}
+                {activeTab === 'Movie'  && <MovieDetailsCard movie={sidebarMovie} />}
+                {activeTab === 'Cast'   && <CastCard cast={castItems.length > 0 ? castItems : undefined} />}
+                {activeTab === 'Quotes' && <QuoteCard quotes={quoteItems.length > 0 ? quoteItems : undefined} />}
+                {activeTab === 'Trivia' && <TriviaCard trivia={triviaItems.length > 0 ? triviaItems : undefined} />}
               </motion.div>
             </AnimatePresence>
           </motion.div>

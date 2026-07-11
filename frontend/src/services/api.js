@@ -55,11 +55,23 @@ export const chatAPI = {
 // ── Movie API ─────────────────────────────────────────────────
 export const movieAPI = {
   /**
-   * Get movie details from OMDB / backend.
+   * Get movie details from TMDB / OMDB via backend.
    * @param {string} title
    */
   getMovieDetails: (title) =>
     api.get(`/movie/details`, { params: { title } }),
+
+  /**
+   * Get popular movies from TMDB with real posters.
+   */
+  getPopularMovies: (page = 1) =>
+    api.get(`/movie/popular`, { params: { page } }),
+
+  /**
+   * Get our PDF script movies with real TMDB posters & ratings.
+   */
+  getOurMovies: () =>
+    api.get(`/movie/our-movies`),
 
   /**
    * Upload a screenplay PDF to the document store.

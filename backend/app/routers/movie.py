@@ -12,6 +12,7 @@ Fetches live data from TMDb and OMDb APIs:
   • /movie/list      — list known titles
 """
 
+import asyncio
 import logging
 import httpx
 from fastapi import APIRouter, Query, HTTPException
@@ -99,11 +100,15 @@ MOVIE_EXTRAS = {
             "Christopher Nolan wrote the screenplay while working as a bank teller.",
             "The film was shot chronologically, but edited in reverse for the audience.",
             "Guy Pearce wore contact lenses to play a character with short-term memory loss.",
+            "The film's structure mirrors Leonard's fractured memory: B&W forward, colour backward.",
+            "Nolan's brother Jonathan wrote the original short story 'Memento Mori'.",
         ],
         "quotes": [
             {"text": "Memory can change the shape of a room.", "speaker": "Leonard"},
             {"text": "I have to believe that my actions still have meaning.", "speaker": "Leonard"},
             {"text": "How am I supposed to heal if I can't feel time?", "speaker": "Leonard"},
+            {"text": "We all need mirrors to remind ourselves who we are.", "speaker": "Leonard"},
+            {"text": "Just because there are things I don't remember doesn't make my actions meaningless.", "speaker": "Leonard"},
         ],
     },
     "tenet": {
@@ -111,23 +116,223 @@ MOVIE_EXTRAS = {
             "Christopher Nolan shot the film in 70mm for maximum visual impact.",
             "The inverted action sequences required actors to learn moves backwards.",
             "The word 'Tenet' is a palindrome — it reads the same forwards and backwards.",
+            "John David Washington performed many of his own stunts.",
+            "The film was shot across seven countries over 87 days.",
         ],
         "quotes": [
             {"text": "Don't try to understand it. Feel it.", "speaker": "Protagonist"},
             {"text": "What's happened, happened.", "speaker": "Neil"},
             {"text": "You have a future in the past.", "speaker": "Ives"},
+            {"text": "We live in a twilight world.", "speaker": "Protagonist"},
+            {"text": "Ignorance is our ammunition.", "speaker": "Neil"},
         ],
     },
-    "openheimer": {
+    "oppenheimer": {
         "trivia": [
             "Cillian Murphy lost considerable weight to portray Oppenheimer.",
             "The Trinity test was recreated practically without CGI.",
             "Christopher Nolan refused to use CGI for the nuclear explosion.",
+            "The film is based on the Pulitzer Prize-winning biography 'American Prometheus'.",
+            "Florence Pugh learned to play the ukulele for her role.",
         ],
         "quotes": [
             {"text": "Now I am become Death, the destroyer of worlds.", "speaker": "Oppenheimer"},
             {"text": "We imagined we might make a thing that would end all wars.", "speaker": "Oppenheimer"},
             {"text": "Theory will only take you so far.", "speaker": "Oppenheimer"},
+            {"text": "I don't know if we can be trusted with such a weapon.", "speaker": "Oppenheimer"},
+            {"text": "The world is changed. I feel it in the water.", "speaker": "Oppenheimer"},
+        ],
+    },
+    "the dark knight rises": {
+        "trivia": [
+            "Tom Hardy developed a unique voice for Bane inspired by an Irish traveller.",
+            "The film was shot partly in New York City, Pittsburgh, and Los Angeles.",
+            "Christian Bale wore a new Batsuit with over 110 individual pieces.",
+            "The prologue was shot in IMAX and released before Mission: Impossible — Ghost Protocol.",
+            "The pit prison scenes were shot in an actual underground cistern in Jodhpur, India.",
+        ],
+        "quotes": [
+            {"text": "Rise.", "speaker": "Bane"},
+            {"text": "You merely adopted the dark. I was born in it.", "speaker": "Bane"},
+            {"text": "The night is darkest just before the dawn.", "speaker": "Harvey Dent / Batman"},
+            {"text": "Peace has cost you your strength. Victory has defeated you.", "speaker": "Bane"},
+            {"text": "A hero can be anyone.", "speaker": "Batman"},
+        ],
+    },
+    "batman begins": {
+        "trivia": [
+            "Christian Bale was cast as Batman after an audition in Val Kilmer's Batsuit.",
+            "Christopher Nolan deliberately set the film in an unnamed but very real-feeling city.",
+            "Liam Neeson trained with real martial arts masters to portray Ra's al Ghul.",
+            "The Tumbler Batmobile was a fully functional vehicle built from scratch.",
+            "Michael Caine based Alfred's warmth on his own real-life father.",
+        ],
+        "quotes": [
+            {"text": "Why do we fall? So we can learn to pick ourselves up.", "speaker": "Thomas Wayne"},
+            {"text": "It's not who I am underneath, but what I do that defines me.", "speaker": "Bruce Wayne"},
+            {"text": "You have to become a terrible thought. A wraith.", "speaker": "Ra's al Ghul"},
+            {"text": "Theatricality and deception are powerful agents to the uninitiated.", "speaker": "Ra's al Ghul"},
+            {"text": "I never said thank you.", "speaker": "Batman"},
+        ],
+    },
+    "the prestige": {
+        "trivia": [
+            "Both Hugh Jackman and Christian Bale performed real magic tricks for their roles.",
+            "The film's three-act structure mirrors the three parts of a magic trick.",
+            "David Bowie was cast as Nikola Tesla — Nolan's dream casting that actually happened.",
+            "The two leads genuinely disliked each other on set, enhancing their rivalry.",
+            "Tesla's lab was built on location in Colorado, not on a sound stage.",
+        ],
+        "quotes": [
+            {"text": "Every great magic trick consists of three parts or acts.", "speaker": "Cutter"},
+            {"text": "Are you watching closely?", "speaker": "Alfred Borden"},
+            {"text": "You're familiar with the phrase 'man's reach exceeds his grasp'?", "speaker": "Nikola Tesla"},
+            {"text": "The secret impresses no one. The trick you use it for is everything.", "speaker": "Nikola Tesla"},
+            {"text": "I have not come here to tell you who I am. I have come to show you.", "speaker": "Angier"},
+        ],
+    },
+    "dunkirk": {
+        "trivia": [
+            "Nolan shot the film with a skeleton crew and minimal dialogue by design.",
+            "The film uses three different timelines: one week, one day, and one hour.",
+            "Real Dunkirk veterans served as extras in the film.",
+            "The Spitfire scenes were filmed with real, airworthy WWII aircraft.",
+            "Hans Zimmer used a Shepard tone — an audio illusion of endless rising tension — throughout the score.",
+        ],
+        "quotes": [
+            {"text": "We shall fight on the beaches.", "speaker": "Churchill (radio)"},
+            {"text": "All we did was survive.", "speaker": "Tommy"},
+            {"text": "Men my age dictate this war. Why should it be fought by children like you?", "speaker": "Mr. Dawson"},
+            {"text": "I'm not going back.", "speaker": "Tommy"},
+            {"text": "Home.", "speaker": "Tommy"},
+        ],
+    },
+    "deadpool & wolverine": {
+        "trivia": [
+            "Ryan Reynolds and Hugh Jackman filmed for over 100 days.",
+            "Jackman's Wolverine suit features the classic yellow-and-blue comic-book colours for the first time.",
+            "The film marks Deadpool's official entry into the MCU.",
+            "Reynolds wrote many of Deadpool's jokes himself and pitched them to the director.",
+            "Multiple variants of beloved Marvel characters appear in the Void sequences.",
+        ],
+        "quotes": [
+            {"text": "I'm going to do what I do best: talk a lot and make questionable decisions.", "speaker": "Deadpool"},
+            {"text": "I'm the best there is at what I do.", "speaker": "Wolverine"},
+            {"text": "You're not a hero — you're a nuisance.", "speaker": "Wolverine"},
+            {"text": "Maximum effort.", "speaker": "Deadpool"},
+            {"text": "Together we are something.", "speaker": "Deadpool"},
+        ],
+    },
+    "spider-man no way home": {
+        "trivia": [
+            "The film features three generations of Spider-Man actors sharing the screen.",
+            "Alfred Molina reprised his Doc Ock role 17 years after Spider-Man 2.",
+            "The Times Square reunion scene was kept entirely secret during filming.",
+            "Tom Holland, Andrew Garfield, and Tobey Maguire all did their own stunts.",
+            "The film earned over $1.9 billion globally, the sixth-highest of all time.",
+        ],
+        "quotes": [
+            {"text": "With great power comes great responsibility.", "speaker": "May Parker"},
+            {"text": "I'm something of a scientist myself.", "speaker": "Doctor Octopus"},
+            {"text": "You're amazing. All of you.", "speaker": "Peter Parker (MCU)"},
+            {"text": "Magic. Actually.", "speaker": "Peter Parker (MCU)"},
+            {"text": "If you expect disappointment, then you can never really be disappointed.", "speaker": "MJ"},
+        ],
+    },
+    "beauty and the beast": {
+        "trivia": [
+            "The 1991 animated film was the first animated feature nominated for Best Picture at the Oscars.",
+            "Alan Menken won two Academy Awards for Best Score and Best Original Song.",
+            "The ballroom scene was one of the earliest uses of CGI in a Disney animated film.",
+            "Beauty and the Beast was directly adapted from the 18th-century French fairy tale.",
+            "The Beast's design was inspired by a lion, gorilla, bear, and wolf combined.",
+        ],
+        "quotes": [
+            {"text": "Tale as old as time.", "speaker": "Mrs. Potts"},
+            {"text": "There's something there that wasn't there before.", "speaker": "Belle"},
+            {"text": "I want adventure in the great wide somewhere.", "speaker": "Belle"},
+            {"text": "If she is the one who'll break the spell, you must try to make her love you.", "speaker": "Mrs. Potts"},
+            {"text": "He's no monster, Gaston, you are!", "speaker": "Belle"},
+        ],
+    },
+    "bones and all": {
+        "trivia": [
+            "Timothée Chalamet and Taylor Russell prepared extensively for their roles.",
+            "Director Luca Guadagnino filmed on location across the American Midwest.",
+            "The film is based on Camille DeAngelis's 2015 novel of the same name.",
+            "The film explores themes of otherness, belonging, and forbidden desire.",
+            "Mark Rylance's performance was widely described as one of the most unsettling of the year.",
+        ],
+        "quotes": [
+            {"text": "You are what you eat.", "speaker": "Sully"},
+            {"text": "I'm not like you.", "speaker": "Maren"},
+            {"text": "I just want to know where I come from.", "speaker": "Maren"},
+            {"text": "We eat, and then we leave.", "speaker": "Lee"},
+            {"text": "You have to eat to stay alive.", "speaker": "Lee"},
+        ],
+    },
+    "project hail mary": {
+        "trivia": [
+            "Andy Weir wrote the novel while working remotely during the COVID-19 pandemic.",
+            "The book features one of the most beloved alien characters in modern sci-fi.",
+            "Ryan Gosling is attached to star in the film adaptation.",
+            "The novel's science is meticulously researched and largely plausible.",
+            "Weir previously wrote The Martian, which was also adapted into a hit film.",
+        ],
+        "quotes": [
+            {"text": "I'm not sure I want to know what I'm doing here.", "speaker": "Ryland Grace"},
+            {"text": "Science is about knowing. Engineering is about doing.", "speaker": "Ryland Grace"},
+            {"text": "Rocky — that's what I'm calling you.", "speaker": "Ryland Grace"},
+            {"text": "Question: friend?", "speaker": "Rocky"},
+            {"text": "It's not about survival. It's about saving everyone else.", "speaker": "Ryland Grace"},
+        ],
+    },
+    "frankenstein": {
+        "trivia": [
+            "Mary Shelley wrote the novel when she was just 18 years old.",
+            "The story originated from a ghost-story competition at Lake Geneva in 1816.",
+            "The creature is often mistakenly called 'Frankenstein' — that is the creator's name.",
+            "The novel is considered one of the first works of science fiction.",
+            "Boris Karloff's 1931 portrayal of the creature remains iconic.",
+        ],
+        "quotes": [
+            {"text": "I am malicious because I am miserable.", "speaker": "The Creature"},
+            {"text": "Beware, for I am fearless and therefore powerful.", "speaker": "The Creature"},
+            {"text": "Nothing is so painful to the human mind as a great and sudden change.", "speaker": "Victor Frankenstein"},
+            {"text": "I, the miserable and the abandoned, am an abortion, to be spurned at, and kicked, and trampled on.", "speaker": "The Creature"},
+            {"text": "Life, although it may only be an accumulation of anguish, is dear to me.", "speaker": "Victor Frankenstein"},
+        ],
+    },
+    "hamnet": {
+        "trivia": [
+            "Maggie O'Farrell's novel won the Women's Prize for Fiction in 2020.",
+            "Hamnet was the name of William Shakespeare's son who died aged 11.",
+            "The novel imagines the domestic life behind the writing of Hamlet.",
+            "Shakespeare is never named in the novel — only called 'the husband' or 'the Latin tutor'.",
+            "The film adaptation stars Paul Mescal as Shakespeare.",
+        ],
+        "quotes": [
+            {"text": "He is here. He is not here. He will always be here.", "speaker": "Agnes"},
+            {"text": "Grief is the price we pay for love.", "speaker": "Agnes"},
+            {"text": "A child is a piece of your soul walking around outside your body.", "speaker": "Agnes"},
+            {"text": "How can the world go on when he is not in it?", "speaker": "Agnes"},
+            {"text": "He put their son into the play so that Hamnet would live forever.", "speaker": "Narrator"},
+        ],
+    },
+    "superman": {
+        "trivia": [
+            "The 1978 film's tagline was 'You will believe a man can fly.'",
+            "Marlon Brando was paid $3.7 million for 13 days of work as Jor-El.",
+            "Christopher Reeve trained intensively and gained 30 lbs of muscle for the role.",
+            "The flying scenes were achieved using optical printing techniques revolutionary for their time.",
+            "The film launched the modern superhero movie era.",
+        ],
+        "quotes": [
+            {"text": "You will believe a man can fly.", "speaker": "Tagline"},
+            {"text": "I'm here to fight for truth, justice, and the American way.", "speaker": "Superman"},
+            {"text": "You've got me? Who's got you?!", "speaker": "Lois Lane"},
+            {"text": "A person can choose either the right way or the wrong way.", "speaker": "Jor-El"},
+            {"text": "Son, you are here for a reason.", "speaker": "Jor-El"},
         ],
     },
 }
@@ -314,8 +519,6 @@ async def _build_movie_data(title: str) -> dict:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-import asyncio
-
 
 @router.get('/details', tags=['Movie'])
 async def get_movie_details(title: str = Query(..., min_length=1)):
@@ -381,3 +584,48 @@ async def list_movies():
     """List movie titles available in the curated extras set."""
     titles = list(MOVIE_EXTRAS.keys())
     return {"movies": [t.title() for t in titles], "total": len(titles)}
+
+
+# Titles from the PDF scripts directory (canonical search strings for TMDb)
+OUR_MOVIE_TITLES = [
+    "Inception", "Interstellar", "The Dark Knight", "The Dark Knight Rises",
+    "Batman Begins", "Memento", "Tenet", "Oppenheimer", "The Prestige", "Dunkirk",
+    "500 Days of Summer", "Deadpool & Wolverine", "Spider-Man: No Way Home",
+    "Beauty and the Beast", "Bones and All", "Superman", "Frankenstein",
+]
+
+
+@router.get('/our-movies', tags=['Movie'])
+async def get_our_movies():
+    """
+    Returns the movies from our PDF script library with real TMDB posters,
+    ratings, and metadata. Used by the Home page featured grid.
+    """
+    settings = get_settings()
+    tmdb_key = settings.TMDB_API_KEY or "239967a7888fc811609db5aa3b554431"
+
+    async def fetch_one(title: str) -> dict | None:
+        result = await _tmdb_search(title, tmdb_key)
+        if not result:
+            return None
+        poster_path   = result.get("poster_path")
+        backdrop_path = result.get("backdrop_path")
+        release = result.get("release_date", "")
+        extras  = _get_extras(title)
+        return {
+            "id":       result.get("id"),
+            "title":    result.get("title", title),
+            "overview": result.get("overview", ""),
+            "year":     release[:4] if release else None,
+            "rating":   round(result.get("vote_average", 0), 1),
+            "poster":   f"{TMDB_IMG}{poster_path}"     if poster_path   else None,
+            "backdrop": f"{TMDB_IMG_HD}{backdrop_path}" if backdrop_path else None,
+            "has_script": True,
+            "trivia_count": len(extras.get("trivia", [])),
+            "quotes_count": len(extras.get("quotes", [])),
+        }
+
+    results = await asyncio.gather(*[fetch_one(t) for t in OUR_MOVIE_TITLES])
+    movies  = [m for m in results if m is not None]
+    return {"movies": movies, "total": len(movies)}
+

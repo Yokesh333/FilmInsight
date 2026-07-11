@@ -1,11 +1,11 @@
 import { motion } from 'framer-motion'
-import { Users, Star } from 'lucide-react'
+import { Users } from 'lucide-react'
 
 const DEFAULT_CAST = [
-  { name: 'Joseph Gordon-Levitt', role: 'Tom Hansen',  note: 'Hopeful romantic architect' },
-  { name: 'Zooey Deschanel',      role: 'Summer Finn', note: 'Believes love is fantasy' },
-  { name: 'Geoffrey Arend',       role: 'McKenzie',    note: "Tom's best friend" },
-  { name: 'Chloe Grace Moretz',   role: 'Rachel Hansen',note: "Tom's wise younger sister" },
+  { name: 'Joseph Gordon-Levitt', role: 'Tom Hansen' },
+  { name: 'Zooey Deschanel',      role: 'Summer Finn' },
+  { name: 'Geoffrey Arend',       role: 'McKenzie' },
+  { name: 'Chloe Grace Moretz',   role: 'Rachel Hansen' },
 ]
 
 const AVATAR_COLORS = [
@@ -13,6 +13,10 @@ const AVATAR_COLORS = [
   'from-pink-600 to-rose-700',
   'from-emerald-600 to-teal-700',
   'from-amber-600 to-orange-700',
+  'from-purple-600 to-violet-700',
+  'from-red-600 to-rose-700',
+  'from-cyan-600 to-blue-700',
+  'from-lime-600 to-green-700',
 ]
 
 export default function CastCard({ cast }) {
@@ -25,6 +29,7 @@ export default function CastCard({ cast }) {
           <Users size={13} className="text-blue-400" />
         </div>
         <h4 className="text-xs font-semibold uppercase tracking-wider text-film-subtle">Cast</h4>
+        <span className="text-[10px] text-film-muted ml-auto">{members.length} members</span>
       </div>
 
       <div className="space-y-2">
@@ -33,7 +38,7 @@ export default function CastCard({ cast }) {
             key={member.name}
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.08 }}
+            transition={{ delay: i * 0.06 }}
             className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/3 transition-colors"
           >
             {/* Avatar */}
@@ -42,7 +47,9 @@ export default function CastCard({ cast }) {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-white truncate">{member.name}</p>
-              <p className="text-xs text-film-red truncate">as {member.role}</p>
+              {member.role && (
+                <p className="text-xs text-film-red truncate">as {member.role}</p>
+              )}
             </div>
           </motion.div>
         ))}
