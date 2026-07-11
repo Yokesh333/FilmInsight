@@ -1,19 +1,5 @@
 import { motion } from 'framer-motion'
-import { Brain, Code2, GraduationCap, Layers, Github, Linkedin, ExternalLink, Star } from 'lucide-react'
-
-const TECH_STACK = [
-  { category: 'Frontend',    items: ['React.js', 'Tailwind CSS', 'Framer Motion', 'Vite', 'Axios', 'React Router'] },
-  { category: 'Backend',     items: ['FastAPI', 'Python', 'Uvicorn', 'Pydantic'] },
-  { category: 'AI & RAG',    items: ['Flowise', 'Groq LLaMA 3', 'HuggingFace Embeddings', 'Chroma Vector DB'] },
-  { category: 'DevOps',      items: ['Docker', 'Jenkins CI/CD', 'Nginx', 'Oracle Cloud VM', 'GitHub Actions'] },
-]
-
-const TIMELINE = [
-  { date: 'Week 1', title: 'RAG Architecture Design',  desc: 'Designed the document store and retrieval pipeline using Flowise.' },
-  { date: 'Week 2', title: 'Backend Integration',      desc: 'Built FastAPI routes connecting to Flowise REST endpoints.' },
-  { date: 'Week 3', title: 'Frontend Development',     desc: 'Crafted the Netflix-inspired React UI with Tailwind and Framer Motion.' },
-  { date: 'Week 4', title: 'CI/CD & Deployment',       desc: 'Jenkins pipeline + Docker deployment on Oracle Cloud.' },
-]
+import { Github, Linkedin, ExternalLink } from 'lucide-react'
 
 export default function About() {
   return (
@@ -66,7 +52,7 @@ export default function About() {
           <div className="flex-1 text-center sm:text-left">
             <h2 className="font-display font-bold text-xl text-white mb-1">Yokesh D</h2>
             <p className="text-film-red text-sm font-medium mb-1">M.Tech Integrated — Software Engineering</p>
-            <p className="text-film-muted text-sm mb-3">Vellore Institute of Technology, Chennai</p>
+            <p className="text-film-muted text-sm mb-3">Vellore Institute of Technology, Vellore</p>
             <p className="text-film-subtle text-sm leading-relaxed max-w-lg">
               Passionate about AI, full-stack development, and building production-ready systems
               that combine cutting-edge ML with intuitive user experiences.
@@ -83,60 +69,6 @@ export default function About() {
             </div>
           </div>
         </motion.div>
-
-        {/* Tech Stack */}
-        <section className="mb-12">
-          <div className="flex items-center gap-2 mb-6">
-            <Code2 size={18} className="text-film-red" />
-            <h2 className="font-display font-bold text-xl text-white">Tech Stack</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {TECH_STACK.map(({ category, items }, i) => (
-              <motion.div
-                key={category}
-                initial={{ opacity: 0, y: 16 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className="glass border border-white/8 rounded-2xl p-5"
-              >
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-film-muted mb-3">{category}</h3>
-                <div className="flex flex-wrap gap-2">
-                  {items.map((item) => (
-                    <span key={item} className="text-xs px-2.5 py-1 rounded-full glass border border-white/8 text-film-subtle">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </section>
-
-        {/* Timeline */}
-        <section className="mb-12">
-          <div className="flex items-center gap-2 mb-6">
-            <Layers size={18} className="text-film-red" />
-            <h2 className="font-display font-bold text-xl text-white">Development Timeline</h2>
-          </div>
-          <div className="relative pl-6 border-l border-white/8 space-y-6">
-            {TIMELINE.map(({ date, title, desc }, i) => (
-              <motion.div
-                key={date}
-                initial={{ opacity: 0, x: -16 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.12 }}
-                className="relative"
-              >
-                <div className="absolute -left-9 w-3.5 h-3.5 rounded-full bg-film-red border-2 border-film-bg top-1" />
-                <span className="text-xs text-film-red font-medium">{date}</span>
-                <h3 className="font-semibold text-white mt-0.5 mb-1">{title}</h3>
-                <p className="text-sm text-film-muted leading-relaxed">{desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </section>
 
         {/* Repo CTA */}
         <motion.div
