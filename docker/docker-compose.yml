@@ -1,0 +1,109 @@
+version: '3.9'
+
+services:
+
+  # ── Flowise ──────────────────────────────────────────────────
+  flowise:
+    image: flowiseai/flowise:latest
+    container_name: filminsight-flowise
+    restart: always
+    ports:
+      - "9000:3000"
+    environment:
+      - FLOWISE_USERNAME=${FLOWISE_USERNAME:-admin}
+      - FLOWISE_PASSWORD=${FLOWISE_PASSWORD:-filminsight2025}
+      - DATABASE_TYPE=sqlite
+      - APIKEY_PATH=/root/.flowise
+      - SECRETKEY_PATH=/root/.flowise
+    volumes:
+      - flowise_data:/root/.flowise
+    networks:
+      - filminsight
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ── ChromaDB ─────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: filminsight-chroma
+    restart: always
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - filminsight
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # ── FastAPI Backend ───────────────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: filminsight-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - FLOWISE_URL=http://flowise:3000
+      - FLOWISE_CHATFLOW_ID=${FLOWISE_CHATFLOW_ID}
+      - FLOWISE_API_KEY=${FLOWISE_API_KEY:-}
+      - ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:5000","http://host.docker.internal:5000"]
+    depends_on:
+      flowise:
+        condition: service_healthy
+    networks:
+      - filminsight
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── React Frontend (Nginx) ────────────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: filminsight-frontend
+    restart: always
+    ports:
+      - "5000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - filminsight
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ── Volumes ───────────────────────────────────────────────────
+volumes:
+  flowise_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+# ── Networks ──────────────────────────────────────────────────
+networks:
+  filminsight:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
