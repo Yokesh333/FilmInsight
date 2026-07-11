@@ -1,1 +1,97 @@
-{}
+{
+  "500 Days Of Summer": {
+    "processed_at": "2026-07-11T16:21:29.306978+00:00",
+    "chunks_stored": 179,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\_500_DAYS_OF_SUMMER.pdf"
+  },
+  "Batman Begins": {
+    "processed_at": "2026-07-11T16:22:42.689666+00:00",
+    "chunks_stored": 305,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\batman_begins.pdf"
+  },
+  "Beauty And The Beast": {
+    "processed_at": "2026-07-11T16:23:47.487715+00:00",
+    "chunks_stored": 226,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\BEAUTY_AND_THE_BEAST.pdf"
+  },
+  "Bones And All": {
+    "processed_at": "2026-07-11T16:25:06.701211+00:00",
+    "chunks_stored": 268,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Bones and all.pdf"
+  },
+  "Deadpool & Wolverine": {
+    "processed_at": "2026-07-11T16:26:25.083151+00:00",
+    "chunks_stored": 304,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Deadpool & Wolverine.pdf"
+  },
+  "Dunkirk": {
+    "processed_at": "2026-07-11T16:27:18.864342+00:00",
+    "chunks_stored": 165,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Dunkirk.pdf"
+  },
+  "Frankenstein": {
+    "processed_at": "2026-07-11T16:28:28.770638+00:00",
+    "chunks_stored": 270,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Frankenstein.pdf"
+  },
+  "Hamnet": {
+    "processed_at": "2026-07-11T16:29:37.902087+00:00",
+    "chunks_stored": 259,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Hamnet.pdf"
+  },
+  "Inception": {
+    "processed_at": "2026-07-11T16:30:51.164548+00:00",
+    "chunks_stored": 296,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Inception.pdf"
+  },
+  "Interstellar": {
+    "processed_at": "2026-07-11T16:32:05.159431+00:00",
+    "chunks_stored": 287,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Interstellar.pdf"
+  },
+  "Memento": {
+    "processed_at": "2026-07-11T16:33:37.928746+00:00",
+    "chunks_stored": 511,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\memento.pdf"
+  },
+  "Openheimer": {
+    "processed_at": "2026-07-11T16:35:05.811998+00:00",
+    "chunks_stored": 398,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\openheimer.pdf"
+  },
+  "Project Hail Mary": {
+    "processed_at": "2026-07-11T16:36:05.113003+00:00",
+    "chunks_stored": 281,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Project hail mary.pdf"
+  },
+  "Spiderman No Way Home": {
+    "processed_at": "2026-07-11T16:37:30.799186+00:00",
+    "chunks_stored": 355,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\spiderman no way home.pdf"
+  },
+  "Superman": {
+    "processed_at": "2026-07-11T16:38:38.788055+00:00",
+    "chunks_stored": 254,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\superman.pdf"
+  },
+  "Tenet": {
+    "processed_at": "2026-07-11T16:39:50.745098+00:00",
+    "chunks_stored": 317,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\Tenet.pdf"
+  },
+  "The Dark Knight Rises": {
+    "processed_at": "2026-07-11T16:41:07.518325+00:00",
+    "chunks_stored": 318,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\The dark Knight rises.pdf"
+  },
+  "The Dark Knight": {
+    "processed_at": "2026-07-11T16:42:19.284942+00:00",
+    "chunks_stored": 295,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\The dark Knight.pdf"
+  },
+  "The Prestige": {
+    "processed_at": "2026-07-11T16:43:37.390616+00:00",
+    "chunks_stored": 275,
+    "pdf_path": "C:\\Users\\Yokesh\\Downloads\\FilmInsight_AI\\movie_scripts\\the_prestige.pdf"
+  }
+}

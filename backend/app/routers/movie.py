@@ -442,13 +442,45 @@ async def _build_movie_data(title: str) -> dict:
 
     # Step 1 – TMDb search
     result = await _tmdb_search(title, tmdb_key)
+    
+    # If TMDb fails, fallback completely to OMDb
     if not result:
+        omdb = await _omdb_fetch(title, None, None, omdb_key)
+        extras = _get_extras(title)
+        if not omdb or omdb.get("Response") == "False":
+            return {
+                "title": title, "year": None, "genre": [], "director": None,
+                "cast": [], "plot": None, "rating": None, "runtime": None,
+                "awards": None, "poster": None, "backdrop": None,
+                "overview": None, "trivia": extras.get("trivia", []), "quotes": extras.get("quotes", []),
+                "imdb_id": None, "tmdb_id": None, "tagline": None,
+            }
+            
+        try:
+            rating_float = float(omdb.get("imdbRating", 0)) if omdb.get("imdbRating") and omdb.get("imdbRating") != "N/A" else None
+        except ValueError:
+            rating_float = None
+
+        year = omdb.get("Year", "")[:4] if omdb.get("Year") else None
+        
         return {
-            "title": title, "year": None, "genre": [], "director": None,
-            "cast": [], "plot": None, "rating": None, "runtime": None,
-            "awards": None, "poster": None, "backdrop": None,
-            "overview": None, "trivia": [], "quotes": [],
-            "imdb_id": None, "tmdb_id": None, "tagline": None,
+            "title":    omdb.get("Title", title),
+            "year":     int(year) if year else None,
+            "genre":    omdb.get("Genre", "").split(", ") if omdb.get("Genre") else [],
+            "director": omdb.get("Director"),
+            "cast":     omdb.get("Actors", "").split(", ") if omdb.get("Actors") else [],
+            "plot":     omdb.get("Plot"),
+            "rating":   rating_float,
+            "runtime":  omdb.get("Runtime"),
+            "awards":   omdb.get("Awards") if omdb.get("Awards") != "N/A" else None,
+            "poster":   omdb.get("Poster") if omdb.get("Poster") != "N/A" else None,
+            "backdrop": None,
+            "overview": omdb.get("Plot"),
+            "tagline":  None,
+            "imdb_id":  omdb.get("imdbID"),
+            "tmdb_id":  None,
+            "trivia":   extras.get("trivia", []),
+            "quotes":   extras.get("quotes", []),
         }
 
     tmdb_id = result.get("id")
@@ -487,6 +519,9 @@ async def _build_movie_data(title: str) -> dict:
     awards      = omdb.get("Awards") or ""
     if not runtime_str:
         runtime_str = omdb.get("Runtime")
+        
+    if not poster and omdb.get("Poster") and omdb.get("Poster") != "N/A":
+        poster = omdb.get("Poster")
 
     try:
         rating_float = float(imdb_rating) if imdb_rating and imdb_rating != "N/A" else None
@@ -606,12 +641,36 @@ async def get_our_movies():
 
     async def fetch_one(title: str) -> dict | None:
         result = await _tmdb_search(title, tmdb_key)
+        extras  = _get_extras(title)
+        
+        # If TMDb fails, fallback to OMDb for the home page cards
         if not result:
-            return None
+            omdb_key = settings.OMDB_API_KEY or "72bf0fb9"
+            omdb = await _omdb_fetch(title, None, None, omdb_key)
+            if not omdb or omdb.get("Response") == "False":
+                return None
+                
+            try:
+                rating = float(omdb.get("imdbRating", 0)) if omdb.get("imdbRating", "N/A") != "N/A" else 0.0
+            except:
+                rating = 0.0
+                
+            return {
+                "id":       omdb.get("imdbID") or title,
+                "title":    omdb.get("Title", title),
+                "overview": omdb.get("Plot", ""),
+                "year":     omdb.get("Year", "")[:4] if omdb.get("Year") else None,
+                "rating":   rating,
+                "poster":   omdb.get("Poster") if omdb.get("Poster") != "N/A" else None,
+                "backdrop": None,
+                "has_script": True,
+                "trivia_count": len(extras.get("trivia", [])),
+                "quotes_count": len(extras.get("quotes", [])),
+            }
+
         poster_path   = result.get("poster_path")
         backdrop_path = result.get("backdrop_path")
         release = result.get("release_date", "")
-        extras  = _get_extras(title)
         return {
             "id":       result.get("id"),
             "title":    result.get("title", title),
