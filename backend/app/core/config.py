@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     FLOWISE_CHATFLOW_ID: str = ""
     FLOWISE_API_KEY:     str = ""
 
+    # TMDb
+    TMDB_API_KEY: str = ""
+    TMDB_BASE_URL: str = "https://api.themoviedb.org/3"
+    TMDB_IMG_BASE: str = "https://image.tmdb.org/t/p/w500"
+
+    # OMDb
+    OMDB_API_KEY: str = ""
+    OMDB_BASE_URL: str = "http://www.omdbapi.com"
+
     # CORS
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5000"]
 

@@ -10,15 +10,21 @@ import Features from './pages/Features'
 
 function AnimatedRoutes() {
   const location = useLocation()
+  const isChat = location.pathname === '/chat'
+
   return (
-    <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route path="/"         element={<Home />} />
-        <Route path="/chat"     element={<Chat />} />
-        <Route path="/about"    element={<About />} />
-        <Route path="/features" element={<Features />} />
-      </Routes>
-    </AnimatePresence>
+    <>
+      <AnimatePresence mode="wait">
+        <Routes location={location} key={location.pathname}>
+          <Route path="/"         element={<Home />} />
+          <Route path="/chat"     element={<Chat />} />
+          <Route path="/about"    element={<About />} />
+          <Route path="/features" element={<Features />} />
+        </Routes>
+      </AnimatePresence>
+      {/* Hide Footer on full-screen Chat page */}
+      {!isChat && <Footer />}
+    </>
   )
 }
 
@@ -31,7 +37,6 @@ export default function App() {
           <main className="flex-1">
             <AnimatedRoutes />
           </main>
-          <Footer />
         </div>
       </BrowserRouter>
     </ChatProvider>
