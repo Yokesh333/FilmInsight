@@ -596,6 +596,34 @@ async def get_popular_movies(page: int = 1):
     return {"movies": movies, "total": len(movies)}
 
 
+@router.get('/search', tags=['Movie'])
+async def search_movies(query: str = Query(..., min_length=1)):
+    """Search TMDb for movies matching the query."""
+    settings = get_settings()
+    tmdb_key = settings.TMDB_API_KEY or "239967a7888fc811609db5aa3b554431"
+    url = f"{TMDB_BASE}/search/movie"
+    params = {"api_key": tmdb_key, "query": query, "language": "en-US", "page": 1}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+            results = r.json().get("results", [])
+            movies = []
+            for m in results[:10]:
+                release = m.get("release_date", "")
+                year = release[:4] if release else None
+                poster_path = m.get("poster_path")
+                movies.append({
+                    "id": m.get("id"),
+                    "title": m.get("title"),
+                    "year": year,
+                    "poster": f"{TMDB_IMG}{poster_path}" if poster_path else None
+                })
+            return {"results": movies}
+    except Exception as e:
+        logger.error(f"[TMDb] Search failed: {e}")
+        return {"results": []}
+
 @router.get('', response_model=MovieResponse)
 async def get_movie(title: str):
     """Basic movie lookup (legacy endpoint — prefer /movie/details)."""

@@ -6,7 +6,9 @@ import {
   Film, Brain, MessageCircle, Quote, Lightbulb, Star,
   Zap, Users, BookOpen, X, ArrowRight, Play, AlertCircle,
 } from 'lucide-react'
-import { movieAPI } from '../services/api'
+import { movieAPI, favoritesAPI, recentAPI } from '../services/api'
+import MovieCard from '../components/MovieCard'
+import { useAuth } from '../context/AuthContext'
 
 /* ── Data ─────────────────────────────────────────────────────── */
 const SUGGESTED = [
@@ -38,115 +40,7 @@ function MovieSkeleton() {
   )
 }
 
-/* ── Movie Poster Card ───────────────────────────────────────── */
-function MovieCard({ movie, onClick, index }) {
-  const [hovered,     setHovered]     = useState(false)
-  const [imgLoaded,   setImgLoaded]   = useState(false)
-  const [imgError,    setImgError]    = useState(false)
-
-  const hasPoster = movie.poster && !imgError
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      transition={{ delay: index * 0.07, duration: 0.5 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={() => onClick(movie)}
-      className="cursor-pointer group"
-    >
-      {/* Poster */}
-      <div
-        className="relative rounded-2xl overflow-hidden mb-3 border border-white/5 group-hover:border-white/20 transition-all duration-300 bg-film-surface"
-        style={{
-          aspectRatio: '2/3',
-          boxShadow: hovered ? `0 20px 60px rgba(0,0,0,0.5)` : '0 4px 24px rgba(0,0,0,0.3)',
-          transform: hovered ? 'scale(1.03) translateY(-4px)' : 'scale(1) translateY(0)',
-          transition: 'transform 0.35s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.35s ease, border-color 0.3s ease',
-        }}
-      >
-        {/* Real TMDB poster image */}
-        {hasPoster ? (
-          <>
-            {!imgLoaded && (
-              <div className="absolute inset-0 bg-gradient-to-b from-film-surface to-film-bg animate-pulse" />
-            )}
-            <img
-              src={movie.poster}
-              alt={movie.title}
-              loading="lazy"
-              onLoad={() => setImgLoaded(true)}
-              onError={() => setImgError(true)}
-              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
-            />
-          </>
-        ) : (
-          /* Fallback gradient with film icon */
-          <div className="absolute inset-0 bg-gradient-to-b from-film-surface to-film-bg flex items-center justify-center">
-            <Film size={40} className="text-white/10" />
-          </div>
-        )}
-
-        {/* Gradient overlay always on top */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
-
-        {/* Hover red glow overlay */}
-        <div
-          className="absolute inset-0 transition-opacity duration-300"
-          style={{ background: 'radial-gradient(circle at 50% 100%, rgba(229,9,20,0.15) 0%, transparent 70%)', opacity: hovered ? 1 : 0 }}
-        />
-
-        {/* Rating badge */}
-        <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-1 bg-black/75 backdrop-blur-sm rounded-full border border-white/10">
-          <Star size={10} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
-          <span className="text-xs font-bold text-white">{movie.rating}</span>
-        </div>
-
-        {/* Year badge */}
-        <div className="absolute top-2.5 left-2.5 px-2 py-0.5 bg-black/65 backdrop-blur-sm rounded-full border border-white/10">
-          <span className="text-[10px] font-medium text-film-subtle">{movie.year}</span>
-        </div>
-
-        {/* Script badge */}
-        {movie.has_script && (
-          <div className="absolute bottom-10 left-2.5 px-2 py-0.5 bg-film-red/80 backdrop-blur-sm rounded-full">
-            <span className="text-[9px] font-bold text-white uppercase tracking-wider">Script</span>
-          </div>
-        )}
-
-        {/* Hover CTA */}
-        <AnimatePresence>
-          {hovered && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ duration: 0.2 }}
-              className="absolute bottom-3 left-0 right-0 flex justify-center"
-            >
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-gradient rounded-full text-xs font-semibold text-white shadow-button">
-                <Play size={10} fill="white" />
-                Ask AI
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Info */}
-      <motion.h3
-        animate={{ color: hovered ? '#E50914' : '#ffffff' }}
-        transition={{ duration: 0.2 }}
-        className="font-display font-bold text-sm leading-tight mb-0.5"
-      >
-        {movie.title}
-      </motion.h3>
-      <p className="text-xs text-film-muted">{movie.overview ? movie.overview.slice(0, 60) + '…' : ''}</p>
-    </motion.div>
-  )
-}
+/* ── Removed inline MovieCard ────────────────────────────────── */
 
 
 /* ── Search Bar ─────────────────────────────────────────────── */
@@ -224,31 +118,78 @@ function FeatureCard({ icon: Icon, title, desc, color, bg, border, index, onClic
 /* ── Page ─────────────────────────────────────────────────── */
 export default function Home() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [recentSearches, setRecentSearches] = useState([])
   const [loading,        setLoading]        = useState(true)
   const [movies,         setMovies]         = useState([])
+  const [favorites,      setFavorites]      = useState(new Set())
   const [movieError,     setMovieError]     = useState(false)
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem('fi_recent') || '[]')
     setRecentSearches(stored.slice(0, 5))
 
-    // Fetch our script movies with real TMDB posters
-    movieAPI.getOurMovies()
-      .then((data) => {
-        setMovies(data.movies || [])
-        setLoading(false)
-      })
-      .catch(() => {
-        setMovieError(true)
-        setLoading(false)
-      })
-  }, [])
+    const fetchInitialData = async () => {
+        try {
+            const moviesData = await movieAPI.getOurMovies();
+            setMovies(moviesData.movies || []);
+            
+            if (user) {
+                const favData = await favoritesAPI.getFavorites();
+                const favSet = new Set(favData.map(f => f.movie_title));
+                setFavorites(favSet);
+            }
+        } catch (err) {
+            setMovieError(true);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    fetchInitialData();
+  }, [user])
+
+  const handleToggleFavorite = async (movie) => {
+    if (!user) {
+        navigate('/login');
+        return;
+    }
+    
+    const isFav = favorites.has(movie.title);
+    try {
+        if (isFav) {
+            await favoritesAPI.removeFavorite(movie.title);
+            const newFavs = new Set(favorites);
+            newFavs.delete(movie.title);
+            setFavorites(newFavs);
+        } else {
+            await favoritesAPI.addFavorite({
+                movie_title: movie.title,
+                movie_year: movie.year ? movie.year.toString() : null,
+                poster_url: movie.poster
+            });
+            setFavorites(new Set(favorites).add(movie.title));
+        }
+    } catch (err) {
+        console.error("Failed to toggle favorite", err);
+    }
+  }
 
   const handleSearch = (q) => {
     const updated = [q, ...recentSearches.filter(x => x !== q)].slice(0, 5)
     localStorage.setItem('fi_recent', JSON.stringify(updated))
     navigate(`/chat?q=${encodeURIComponent(q)}`)
+  }
+
+  const handleMovieClick = (movie) => {
+    if (user) {
+        recentAPI.addRecent({
+            movie_title: movie.title,
+            movie_year: movie.year ? movie.year.toString() : null,
+            poster_url: movie.poster
+        }).catch(err => console.error("Failed to add recent", err));
+    }
+    handleSearch(`Tell me about "${movie.title}" — plot, characters, and themes.`);
   }
 
   const removeRecent = (e, item) => {
@@ -440,7 +381,9 @@ export default function Home() {
                       key={movie.id || i}
                       movie={movie}
                       index={i}
-                      onClick={(m) => handleSearch(`Tell me about "${m.title}" — plot, characters, and themes.`)}
+                      isFavorite={favorites.has(movie.title)}
+                      onToggleFavorite={handleToggleFavorite}
+                      onClick={() => handleMovieClick(movie)}
                     />
                   ))
                 : !movieError && Array.from({ length: 10 }).map((_, i) => <MovieSkeleton key={i} />)

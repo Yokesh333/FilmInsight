@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: filminsight-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    region: oregon
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FLOWISE_URL
+        sync: false
+      - key: FLOWISE_CHATFLOW_ID
+        sync: false
+      - key: FLOWISE_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+
+  - type: web
+    name: filminsight-frontend
+    env: docker
+    dockerfilePath: ./frontend/Dockerfile
+    region: oregon
+    plan: starter
+    healthCheckPath: /
+    envVars:
+      - key: VITE_API_URL
+        value: "https://filminsight-backend.onrender.com"

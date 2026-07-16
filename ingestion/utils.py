@@ -114,9 +114,12 @@ def mark_movie_processed(
     filepath: Path,
     chunks_stored: int,
     pdf_path: str,
+    record_id: int = None
 ) -> None:
     """Add / update a movie entry in the registry and save immediately."""
     from datetime import datetime, timezone
+    import psycopg2
+    from ingestion import config
 
     registry[movie_name] = {
         "processed_at": datetime.now(timezone.utc).isoformat(),
@@ -124,6 +127,17 @@ def mark_movie_processed(
         "pdf_path": str(pdf_path),
     }
     save_processed_movies(registry, filepath)
+    
+    if record_id:
+        try:
+            conn = psycopg2.connect(config.DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute("UPDATE movie_scripts SET status = 'ingested' WHERE id = %s", (record_id,))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            get_logger().error(f"Failed to update DB for record {record_id}: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -184,18 +198,51 @@ def scan_pdf_files(directory: Path) -> list[Path]:
 
 def discover_new_pdfs(
     directory: Path, registry: dict[str, Any]
-) -> list[tuple[Path, str]]:
+) -> list[tuple[Path, str, int]]:
     """
-    Compare PDFs in *directory* against *registry* and return a list of
-    ``(pdf_path, movie_title)`` tuples for movies not yet processed.
+    Connect to PostgreSQL to find newly uploaded movies.
+    Downloads them from Supabase Storage to a temporary directory.
+    Returns a list of ``(temp_pdf_path, movie_title, db_record_id)`` tuples.
     """
-    pdfs = scan_pdf_files(directory)
-    new: list[tuple[Path, str]] = []
-    for pdf in pdfs:
-        title = normalise_title(pdf.name)
-        if title not in registry:
-            new.append((pdf, title))
-    return new
+    import psycopg2
+    from supabase import create_client, Client
+    import uuid
+    import tempfile
+    from ingestion import config
+
+    try:
+        conn = psycopg2.connect(config.DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("SELECT id, title, file_path FROM movie_scripts WHERE status = 'uploaded'")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        get_logger().error(f"Failed to fetch scripts from DB: {e}")
+        return []
+
+    if not rows:
+        return []
+
+    try:
+        supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY)
+    except Exception as e:
+        get_logger().error(f"Failed to initialize Supabase client: {e}")
+        return []
+    
+    new_movies: list[tuple[Path, str, int]] = []
+    
+    for row_id, title, file_path in rows:
+        try:
+            res = supabase.storage.from_("movie-scripts").download(file_path)
+            tmp_path = Path(tempfile.gettempdir()) / f"tmp_{uuid.uuid4().hex}_{file_path}"
+            with open(tmp_path, "wb") as f:
+                f.write(res)
+            new_movies.append((tmp_path, title, row_id))
+        except Exception as e:
+            get_logger().error(f"Failed to download {file_path} from Supabase: {e}")
+            
+    return new_movies
 
 
 def safe_str(value: Any, fallback: str = "N/A") -> str:

@@ -135,7 +135,7 @@ class IngestionPipeline:
         success_count = 0
         failure_count = 0
 
-        for movie_idx, (pdf_path, title) in enumerate(new_movies, start=1):
+        for movie_idx, (pdf_path, title, record_id) in enumerate(new_movies, start=1):
             logger.info("")
             logger.info(
                 f"[{'─' * 58}]"
@@ -152,6 +152,7 @@ class IngestionPipeline:
                     self.processed_file,
                     chunks_stored,
                     str(pdf_path),
+                    record_id
                 )
                 logger.info(
                     f"  [success]✓ '{title}' → {chunks_stored} chunks stored.[/success]"
@@ -171,6 +172,13 @@ class IngestionPipeline:
                     raise
                 traceback.print_exc()
                 continue
+                
+            finally:
+                try:
+                    if pdf_path.exists():
+                        pdf_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file {pdf_path}: {e}")
 
         # ── 5. Summary ────────────────────────────────────────────────────────
         elapsed = time.time() - start_time

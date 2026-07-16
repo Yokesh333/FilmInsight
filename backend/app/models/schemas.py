@@ -2,12 +2,14 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 from datetime import datetime
 from enum import Enum
-
+from app.models.favorite_movie_schemas import FavoriteMovieCreate, FavoriteMovieResponse
+from app.models.recently_viewed_schemas import RecentlyViewedCreate, RecentlyViewedResponse
 
 # ── Chat ──────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     question:  str = Field(..., min_length=1, max_length=4000)
     sessionId: str = Field(..., description="Session UUID")
+    movie_name: Optional[str] = None
 
 
 class SourceDocument(BaseModel):
@@ -56,10 +58,11 @@ class ServiceStatus(str, Enum):
 
 
 class HealthResponse(BaseModel):
-    status:  ServiceStatus = ServiceStatus.ok
-    flowise: str           = "unknown"
-    version: str           = "1.0.0"
-    uptime:  Optional[str] = None
+    status:   ServiceStatus = ServiceStatus.ok
+    flowise:  str           = "unknown"
+    database: str           = "unknown"
+    version:  str           = "1.0.0"
+    uptime:   Optional[str] = None
 
 
 # ── Error ─────────────────────────────────────────────────────────

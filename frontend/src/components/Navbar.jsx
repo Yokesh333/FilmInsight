@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Film, MessageCircle, Info, Zap, Menu, X, Sparkles, Home } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 const navLinks = [
   { to: '/',        label: 'Home',     icon: Home },
@@ -14,6 +15,7 @@ export default function Navbar() {
   const location  = useLocation()
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const { user, logout } = useAuth()
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -94,10 +96,29 @@ export default function Navbar() {
 
             {/* CTA */}
             <div className="hidden md:flex items-center gap-3">
-              <Link to="/chat" className="btn-primary text-sm py-2 px-4">
+              <Link to="/chat" className="btn-primary text-sm py-2 px-4 mr-2">
                 <MessageCircle size={14} />
                 Ask AI
               </Link>
+              {user ? (
+                <>
+                  <Link to={user.role === 'admin' ? '/admin' : '/dashboard'} className="text-film-subtle hover:text-white text-sm font-medium transition-colors">
+                    Dashboard
+                  </Link>
+                  <button onClick={logout} className="text-film-subtle hover:text-white text-sm font-medium transition-colors">
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/login" className="text-film-subtle hover:text-white text-sm font-medium transition-colors">
+                    Login
+                  </Link>
+                  <Link to="/register" className="glass px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:bg-white/10 border border-white/10">
+                    Sign Up
+                  </Link>
+                </>
+              )}
             </div>
 
             {/* Mobile toggle */}
@@ -140,8 +161,27 @@ export default function Navbar() {
                   </Link>
                 )
               })}
-              <div className="pt-1 border-t border-white/6 mt-1">
-                <Link to="/chat" className="btn-primary w-full justify-center text-sm py-2.5">
+              <div className="pt-1 border-t border-white/6 mt-1 flex flex-col gap-2">
+                {user ? (
+                  <>
+                    <Link to={user.role === 'admin' ? '/admin' : '/dashboard'} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-film-subtle hover:text-white hover:bg-white/5 transition-all">
+                      Dashboard
+                    </Link>
+                    <button onClick={logout} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-film-subtle hover:text-white hover:bg-white/5 transition-all w-full">
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link to="/login" className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-film-subtle hover:text-white hover:bg-white/5 transition-all">
+                      Login
+                    </Link>
+                    <Link to="/register" className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium glass border border-white/10 text-white transition-all hover:bg-white/10">
+                      Sign Up
+                    </Link>
+                  </>
+                )}
+                <Link to="/chat" className="btn-primary w-full justify-center text-sm py-2.5 mt-2">
                   <MessageCircle size={15} />
                   Ask AI Now
                 </Link>

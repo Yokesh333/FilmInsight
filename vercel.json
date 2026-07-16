@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "name": "filminsight-frontend",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "main": "index.html"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "https://filminsight-backend.onrender.com/api/$1"
+    }
+  ]
+}

@@ -39,17 +39,17 @@ export const chatAPI = {
     api.post('/chat', { question, sessionId }),
 
   /**
-   * Get chat history for a session.
-   * @param {string} sessionId
+   * Get chat history for the user.
+   * @param {string} query Search term
    */
-  getHistory: (sessionId) =>
-    api.get(`/chat/history/${sessionId}`),
+  getHistory: (query = '') =>
+    api.get(`/chat/history`, { params: { query } }),
 
   /**
-   * Clear chat history for a session.
+   * Delete a specific chat history record.
    */
-  clearHistory: (sessionId) =>
-    api.delete(`/chat/history/${sessionId}`),
+  clearHistory: (chatId) =>
+    api.delete(`/chat/history/${chatId}`),
 }
 
 // ── Movie API ─────────────────────────────────────────────────
@@ -100,6 +100,24 @@ export const movieAPI = {
 // ── Health API ────────────────────────────────────────────────
 export const healthAPI = {
   check: () => api.get('/health'),
+}
+
+// ── Favorites API ─────────────────────────────────────────────
+export const favoritesAPI = {
+  getFavorites: () => api.get('/favorites'),
+  addFavorite: (data) => api.post('/favorites', data),
+  removeFavorite: (movieTitle) => api.delete(`/favorites/${encodeURIComponent(movieTitle)}`),
+}
+
+// ── Recent API ────────────────────────────────────────────────
+export const recentAPI = {
+  getRecent: () => api.get('/recent'),
+  addRecent: (data) => api.post('/recent', data),
+}
+
+// ── User API ──────────────────────────────────────────────────
+export const userAPI = {
+  updateProfile: (data) => api.put('/api/auth/profile', data),
 }
 
 export default api

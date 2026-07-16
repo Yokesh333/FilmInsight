@@ -37,6 +37,13 @@ TMDB_API_KEY: str = os.getenv("TMDB_API_KEY", "239967a7888fc811609db5aa3b554431"
 OMDB_API_KEY: str = os.getenv("OMDB_API_KEY", "72bf0fb9")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Database & Supabase settings
+# ─────────────────────────────────────────────────────────────────────────────
+DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/filminsight")
+SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TMDb settings
 # ─────────────────────────────────────────────────────────────────────────────
 TMDB_BASE_URL: str = "https://api.themoviedb.org/3"

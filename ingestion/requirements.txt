@@ -21,6 +21,9 @@ chromadb>=0.5.0
 
 # ── API clients ───────────────────────────────────────────────────────────────
 requests>=2.31.0
+supabase==2.4.3
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.28
 
 # ── Environment & config ──────────────────────────────────────────────────────
 python-dotenv>=1.0.0
