@@ -8,42 +8,22 @@ version: '3.9'
 #  movie_scripts_data  →  screenplay PDFs  (bind-mounted from host)
 #  chroma_db_data      →  Chroma vector DB (survives container restarts)
 #  logs_data           →  application logs (survives container restarts)
-#  flowise_data        →  Flowise settings (survives container restarts)
 #
 #  NOTE: movie_scripts/ and chroma_db/ are NEVER committed to Git.
 #        Place screenplay PDFs in ./movie_scripts/ on the host before
 #        starting the stack for the first time.
+#
+#  Flowise has been removed from this stack.
+#  Ingestion is now fully local:
+#    PDF → PyMuPDF → RecursiveCharacterTextSplitter
+#        → HuggingFace all-MiniLM-L6-v2 → Chroma → PostgreSQL
 # ═══════════════════════════════════════════════════════════════════════════
 
 services:
 
-  # ── Flowise ──────────────────────────────────────────────────────────────
-  flowise:
-    image: flowiseai/flowise:latest
-    container_name: filminsight-flowise
-    restart: always
-    ports:
-      - "9000:3000"
-    environment:
-      - FLOWISE_USERNAME=${FLOWISE_USERNAME:-admin}
-      - FLOWISE_PASSWORD=${FLOWISE_PASSWORD:-filminsight2025}
-      - DATABASE_TYPE=sqlite
-      - APIKEY_PATH=/root/.flowise
-      - SECRETKEY_PATH=/root/.flowise
-    volumes:
-      - flowise_data:/root/.flowise
-    networks:
-      - filminsight
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/ping || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
-
   # ── ChromaDB (standalone server — optional) ───────────────────────────────
-  # The backend also uses a local PersistentClient via the chroma_db volume.
-  # Keep this service if you want to expose Chroma over HTTP for Flowise.
+  # The backend uses a PersistentClient via the chroma_db volume directly.
+  # This service exposes Chroma over HTTP if you need external access.
   chromadb:
     image: chromadb/chroma:latest
     container_name: filminsight-chroma
@@ -75,28 +55,37 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - FLOWISE_URL=http://flowise:3000
-      - FLOWISE_CHATFLOW_ID=${FLOWISE_CHATFLOW_ID}
-      - FLOWISE_API_KEY=${FLOWISE_API_KEY:-}
-      - ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:5000","http://host.docker.internal:5000"]
+      # ── Groq LLM ─────────────────────────────────────────────────────────
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      # ── HuggingFace Embeddings ────────────────────────────────────────────
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      - EMBEDDING_DEVICE=${EMBEDDING_DEVICE:-cpu}
       # ── Ingestion / KB paths (must match volume mount-points below) ────────
       - PROJECT_ROOT=/app
       - MOVIE_SCRIPTS_DIR=/data/movie_scripts
       - CHROMA_DB_DIR=/data/chroma_db
       - CHROMA_COLLECTION_NAME=${CHROMA_COLLECTION_NAME:-filminsight_scripts}
+      - CHUNK_SIZE=${CHUNK_SIZE:-800}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-150}
+      # ── CORS ──────────────────────────────────────────────────────────────
+      - ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:5000","http://host.docker.internal:5000"]
+      # ── Database & Supabase ───────────────────────────────────────────────
+      - DATABASE_URL=${DATABASE_URL}
+      - SECRET_KEY=${SECRET_KEY:-my-super-secret-jwt-key-replace-in-production}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       # ── Optional API keys for metadata fetching ────────────────────────────
       - TMDB_API_KEY=${TMDB_API_KEY:-}
       - OMDB_API_KEY=${OMDB_API_KEY:-}
     volumes:
       # ── Persistent data volumes ────────────────────────────────────────────
-      # movie_scripts: read-only in the backend (ingestion writes too, so rw)
       - movie_scripts_data:/data/movie_scripts
-      # chroma_db: read-write (ingestion creates / backend reads)
       - chroma_db_data:/data/chroma_db
-      # logs: persistent across restarts
       - logs_data:/data/logs
     depends_on:
-      flowise:
+      chromadb:
         condition: service_healthy
     networks:
       - filminsight
@@ -105,7 +94,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s   # extended: allows time for auto-ingestion on first boot
+      start_period: 90s   # extended: allows time for model download + auto-ingestion on first boot
 
   # ── React Frontend (Nginx) ────────────────────────────────────────────────
   frontend:
@@ -129,24 +118,8 @@ services:
 
 # ══════════════════════════════════════════════════════════════════════════
 #  Named Volumes
-#  ─────────────────────────────────────────────────────────────────────────
-#  All data volumes use the local driver so Docker manages the paths.
-#  On Oracle Cloud / any Linux host this resolves to:
-#    /var/lib/docker/volumes/<project>_<name>/_data
-#
-#  To pre-seed movie_scripts, copy PDFs to the host path BEFORE first
-#  docker compose up, or mount the host directory with a bind mount:
-#
-#  movie_scripts_data:
-#    driver: local
-#    driver_opts:
-#      type: none
-#      o: bind
-#      device: /opt/filminsight/movie_scripts
 # ══════════════════════════════════════════════════════════════════════════
 volumes:
-  flowise_data:
-    driver: local
   movie_scripts_data:
     driver: local
   chroma_db_data:

@@ -33,10 +33,11 @@ export const chatAPI = {
    * Send a message to the FilmInsight RAG chatbot.
    * @param {string} question
    * @param {string} sessionId
+   * @param {string} movieName
    * @returns {Promise<{ answer: string, sources: Array, metadata: object }>}
    */
-  sendMessage: (question, sessionId) =>
-    api.post('/chat', { question, sessionId }),
+  sendMessage: (question, sessionId, movieName) =>
+    api.post('/chat', { question, sessionId, movie_name: movieName }),
 
   /**
    * Get chat history for the user.

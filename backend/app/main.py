@@ -10,9 +10,8 @@ from app.routers import chat, movie, upload, auth, admin, requests, favorites, r
 from app.models.schemas import HealthResponse, ServiceStatus
 from app.db.database import engine, Base, get_db
 from app.core.config import get_settings
-from app.services.flowise import get_flowise_service
 from app.services.kb_startup import initialise_knowledge_base
-from app.models import movie_script # Import to register with Base
+from app.models import movie_script  # Import to register with Base
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -37,8 +36,11 @@ async def lifespan(app: FastAPI):
     logger.info('═' * 50)
 
     settings = get_settings()
-    logger.info(f'  Flowise URL:  {settings.FLOWISE_URL}')
-    logger.info(f'  Chatflow ID:  {settings.FLOWISE_CHATFLOW_ID or "(not set)"}')
+    logger.info(f'  Embedding model : {settings.EMBEDDING_MODEL_NAME}')
+    logger.info(f'  Chroma dir      : {settings.CHROMA_DB_DIR or "(auto-detected)"}')
+    logger.info(f'  Collection      : {settings.CHROMA_COLLECTION_NAME}')
+    logger.info(f'  Groq model      : {settings.GROQ_MODEL}')
+    logger.info(f'  Groq key set    : {"yes" if settings.GROQ_API_KEY else "NO — set GROQ_API_KEY in .env"}')
 
     # ── Knowledge-base initialisation ────────────────────────────
     # Three-state decision tree (never crashes the application):
@@ -49,7 +51,6 @@ async def lifespan(app: FastAPI):
         kb_state = initialise_knowledge_base()
         app.state.kb_state = kb_state
     except Exception as exc:  # noqa: BLE001
-        # Safety net — initialisation must never crash the server
         logger.error(f'Knowledge-base initialisation raised an unexpected error: {exc}')
         from app.services.kb_startup import KBState
         app.state.kb_state = KBState(
@@ -73,23 +74,24 @@ async def lifespan(app: FastAPI):
 settings = get_settings()
 
 tags_metadata = [
-    {"name": "Health", "description": "Operations to check service health."},
+    {"name": "Health",         "description": "Operations to check service health."},
     {"name": "Authentication", "description": "JWT-based authentication and user management."},
-    {"name": "Chat", "description": "Interact with the FilmInsight RAG chatbot."},
-    {"name": "Movies", "description": "Query and manage movie screenplays."},
-    {"name": "Favorites", "description": "Manage user favorite movies."},
-    {"name": "Recent", "description": "Track recently viewed movies."},
-    {"name": "Requests", "description": "Submit and manage movie script requests."},
-    {"name": "Admin", "description": "Administrative actions and statistics."},
+    {"name": "Chat",           "description": "Interact with the FilmInsight RAG chatbot."},
+    {"name": "Movies",         "description": "Query and manage movie screenplays."},
+    {"name": "Favorites",      "description": "Manage user favorite movies."},
+    {"name": "Recent",         "description": "Track recently viewed movies."},
+    {"name": "Requests",       "description": "Submit and manage movie script requests."},
+    {"name": "Admin",          "description": "Administrative actions and statistics."},
 ]
 
 app = FastAPI(
-    title       = settings.APP_NAME,
-    version     = settings.APP_VERSION,
+    title        = settings.APP_NAME,
+    version      = settings.APP_VERSION,
     openapi_tags = tags_metadata,
-    description = (
-        'FilmInsight REST API — AI-powered movie assistant backed by Flowise RAG.\n\n'
-        'This API provides full programmatic access to authentication, movie metadata, and AI chat endpoints.'
+    description  = (
+        'FilmInsight REST API — AI-powered movie assistant backed by a local RAG pipeline.\n\n'
+        'Documents are stored in Supabase, embedded with HuggingFace sentence-transformers, '
+        'indexed in a persistent Chroma vector database, and answered via Groq LLM.'
     ),
     lifespan  = lifespan,
     docs_url  = '/docs',
@@ -144,9 +146,20 @@ app.include_router(recently_viewed.router)
 # ── Endpoints ────────────────────────────────────────────────────
 @app.get('/health', response_model=HealthResponse, tags=['Health'])
 async def health(db: Session = Depends(get_db)):
-    """Health check — pings Flowise and database, returns service status."""
-    flowise_status = await get_flowise_service().health()
-    
+    """
+    Health check — pings the Chroma vector database and PostgreSQL,
+    returns service status.
+    """
+    # Check Chroma status
+    try:
+        from app.services.rag_service import get_rag_service
+        rag          = get_rag_service()
+        chroma_count = rag.chroma_doc_count()
+        chroma_status = f"ok ({chroma_count:,} docs)"
+    except Exception as exc:
+        logger.warning(f"Chroma health check failed: {exc}")
+        chroma_status = "error"
+
     # Check Database connection
     try:
         db.execute(text("SELECT 1"))
@@ -155,17 +168,17 @@ async def health(db: Session = Depends(get_db)):
         logger.error(f"DB health check failed: {exc}")
         db_status = "error"
 
-    uptime_s       = int(time.time() - _start_time)
-    uptime_str     = f'{uptime_s // 3600}h {(uptime_s % 3600) // 60}m {uptime_s % 60}s'
+    uptime_s   = int(time.time() - _start_time)
+    uptime_str = f'{uptime_s // 3600}h {(uptime_s % 3600) // 60}m {uptime_s % 60}s'
 
-    is_healthy = flowise_status == 'ok' and db_status == 'ok'
+    is_healthy = db_status == "ok"
 
     return HealthResponse(
-        status  = ServiceStatus.ok if is_healthy else ServiceStatus.degraded,
-        flowise = flowise_status,
-        database= db_status,
-        version = settings.APP_VERSION,
-        uptime  = uptime_str,
+        status   = ServiceStatus.ok if is_healthy else ServiceStatus.degraded,
+        chroma   = chroma_status,
+        database = db_status,
+        version  = settings.APP_VERSION,
+        uptime   = uptime_str,
     )
 
 

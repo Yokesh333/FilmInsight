@@ -16,7 +16,7 @@ const STARTER_QUESTIONS = [
 ]
 
 export default function ChatWindow({ onNewChat }) {
-  const { messages, isLoading, sessionId, addMessage, setLoading, setError, clearChat } = useChat()
+  const { messages, isLoading, sessionId, addMessage, setLoading, setError, clearChat, movieContext } = useChat()
   const [input, setInput]   = useState('')
   const endRef              = useRef(null)
   const inputRef            = useRef(null)
@@ -40,7 +40,8 @@ export default function ChatWindow({ onNewChat }) {
     setError(null)
 
     try {
-      const data = await chatAPI.sendMessage(question, sessionId)
+      const movieName = movieContext?.titleKey || movieContext?.title || null
+      const data = await chatAPI.sendMessage(question, sessionId, movieName)
       addMessage({
         role: 'assistant',
         content: data.answer || 'No response received.',

@@ -13,10 +13,16 @@ class ChatRequest(BaseModel):
 
 
 class SourceDocument(BaseModel):
-    pageLabel: Optional[str]   = None
-    content:   Optional[str]   = None
-    page:      Optional[int]   = None
-    score:     Optional[float] = None
+    pageLabel:    Optional[str]   = None
+    content:      Optional[str]   = None
+    page:         Optional[int]   = None
+    score:        Optional[float] = None
+    # Extended Chroma metadata (new — additive, frontend ignores unknown fields)
+    movie_name:   Optional[str]   = None
+    movie_id:     Optional[int]   = None
+    chunk_index:  Optional[int]   = None
+    uploaded_at:  Optional[str]   = None
+    storage_path: Optional[str]   = None
 
 
 class ChatResponse(BaseModel):
@@ -59,14 +65,14 @@ class ServiceStatus(str, Enum):
 
 class HealthResponse(BaseModel):
     status:   ServiceStatus = ServiceStatus.ok
-    flowise:  str           = "unknown"
+    chroma:   str           = "unknown"   # replaces 'flowise'
     database: str           = "unknown"
-    version:  str           = "1.0.0"
+    version:  str           = "2.0.0"
     uptime:   Optional[str] = None
 
 
 # ── Error ─────────────────────────────────────────────────────────
 class ErrorResponse(BaseModel):
-    error:   str
-    detail:  Optional[str] = None
-    code:    int           = 500
+    error:  str
+    detail: Optional[str] = None
+    code:   int           = 500

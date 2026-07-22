@@ -135,9 +135,13 @@ export default function Home() {
             setMovies(moviesData.movies || []);
             
             if (user) {
-                const favData = await favoritesAPI.getFavorites();
-                const favSet = new Set(favData.map(f => f.movie_title));
-                setFavorites(favSet);
+                try {
+                    const favData = await favoritesAPI.getFavorites();
+                    const favSet = new Set(favData.map(f => f.movie_title));
+                    setFavorites(favSet);
+                } catch (favErr) {
+                    console.error("Failed to fetch favorites:", favErr);
+                }
             }
         } catch (err) {
             setMovieError(true);
