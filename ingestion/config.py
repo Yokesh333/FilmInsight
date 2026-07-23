@@ -22,7 +22,9 @@ load_dotenv(PROJECT_ROOT / "backend" / ".env", override=False)
 # Directory paths
 # ─────────────────────────────────────────────────────────────────────────────
 MOVIE_SCRIPTS_DIR: Path = PROJECT_ROOT / "movie_scripts"
-CHROMA_DB_DIR: Path = PROJECT_ROOT / "chroma_db"
+CHROMA_DB_DIR: Path = Path(
+    os.getenv("CHROMA_DB_DIR", str(PROJECT_ROOT / "chroma_db"))
+)
 PROCESSED_MOVIES_FILE: Path = _INGESTION_DIR / "processed_movies.json"
 LOGS_DIR: Path = _INGESTION_DIR / "logs"
 
