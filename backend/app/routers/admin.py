@@ -76,21 +76,23 @@ def _resolve_chroma_dir() -> str:
     return str(here.parent.parent / "chroma_db")
 
 
-def _delete_chroma_vectors(movie_name: str) -> int:
+def _delete_chroma_vectors(movie_id: int) -> int:
     """
-    Delete all Chroma vectors for *movie_name*.
+    Delete all Chroma vectors for *movie_id*.
     Returns the count that was present before deletion (best-effort).
     Returns -1 if collection not reachable.
     """
     try:
         col = _get_chroma_collection()
-        result = col.get(where={"movie_name": movie_name}, limit=1)
-        had_vectors = len(result.get("ids", [])) > 0
-        col.delete(where={"movie_name": movie_name})
-        logger.info(f"[Admin] Deleted Chroma vectors for '{movie_name}' (had_vectors={had_vectors})")
-        return 1 if had_vectors else 0
+        result = col.get(where={"movie_id": movie_id})
+        matched_vectors = len(result.get("ids", [])) if result else 0
+        logger.info(f"[Admin] Deleting vectors: movie_id={movie_id} matched_vectors={matched_vectors}")
+        
+        col.delete(where={"movie_id": movie_id})
+        logger.info(f"[Admin] Deleted Chroma vectors for movie_id={movie_id}")
+        return 1 if matched_vectors > 0 else 0
     except Exception as exc:
-        logger.warning(f"[Admin] Could not delete Chroma vectors for '{movie_name}': {exc}")
+        logger.warning(f"[Admin] Could not delete Chroma vectors for movie_id={movie_id}: {exc}")
         return -1
 
 
@@ -253,7 +255,7 @@ def delete_movie(
         raise HTTPException(status_code=404, detail=f"Movie '{title}' not found in database.")
 
     # 1. Delete Chroma vectors first (before DB record is gone)
-    _delete_chroma_vectors(title)
+    _delete_chroma_vectors(script.id)
 
     # 2. Delete from Supabase Storage (best-effort — don't fail if missing)
     try:
@@ -295,7 +297,7 @@ def reingest_movie(
         raise HTTPException(status_code=404, detail=f"Movie '{title}' not found.")
 
     # 1. Clear old Chroma vectors
-    _delete_chroma_vectors(title)
+    _delete_chroma_vectors(script.id)
 
     # 2. Reset status in PostgreSQL
     script.status          = "UPLOADED"
@@ -350,7 +352,7 @@ def trigger_ingestion(
 
     for script in pending:
         # Clear old vectors before re-queueing
-        _delete_chroma_vectors(script.title)
+        _delete_chroma_vectors(script.id)
 
         # Reset status
         script.status          = "UPLOADED"

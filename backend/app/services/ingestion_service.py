@@ -109,8 +109,12 @@ class IngestionService:
 
         # Step 4: Safe Retry - Delete existing vectors for this movie to prevent duplicates
         try:
-            collection.delete(where={"movie_name": movie_name})
-            logger.info(f"[Ingestion] Cleared existing Chroma vectors for '{movie_name}' to ensure clean slate.")
+            existing = collection.get(where={"movie_id": movie_id})
+            matched_vectors = len(existing.get("ids", [])) if existing else 0
+            logger.info(f"[Ingestion] Deleting vectors: movie_id={movie_id} movie_name={movie_name} matched_vectors={matched_vectors}")
+            
+            collection.delete(where={"movie_id": movie_id})
+            logger.info(f"[Ingestion] Cleared existing Chroma vectors for '{movie_name}' (id={movie_id}) to ensure clean slate.")
         except Exception as exc:
             logger.warning(f"[Ingestion] Failed to clear existing Chroma vectors for '{movie_name}': {exc}")
 
@@ -192,10 +196,12 @@ class IngestionService:
 
         # Verification step before marking ready
         logger.info(f"[Ingestion] Running post-ingestion verification query for '{movie_name}'…")
-        verify_res = collection.get(where={"movie_name": movie_name}, limit=1)
+        verify_res = collection.get(where={"movie_id": movie_id})
         verify_ids = verify_res.get("ids", [])
         if not verify_ids or len(verify_ids) == 0:
             raise IngestionError("Verification failed: zero vectors retrieved from Chroma after ingestion.")
+        
+        logger.info(f"[Ingestion] Verification successful: movie_id={movie_id} vectors_found={len(verify_ids)}")
         
         # Verify metadata
         verify_metas = verify_res.get("metadatas", [])
@@ -349,7 +355,8 @@ class IngestionService:
 
             for chunk in batch_chunks:
                 chunk_index = chunk["chunk_index"]
-                chunk_id    = self._make_chunk_id(movie_name, chunk_index)
+                safe_movie_id = movie_id if movie_id is not None else -1
+                chunk_id    = self._make_chunk_id(safe_movie_id, movie_name, chunk_index)
 
                 meta: dict[str, Any] = {
                     "movie_name":    movie_name,
@@ -374,6 +381,7 @@ class IngestionService:
                 docs.append(chunk["text"])
                 metas.append(meta)
 
+            logger.info(f"[Ingestion] Upserting vectors: movie_id={movie_id} chunks={len(ids)}")
             collection.upsert(
                 ids=ids,
                 documents=docs,
@@ -432,11 +440,11 @@ class IngestionService:
         return stem.title()
 
     @staticmethod
-    def _make_chunk_id(movie_name: str, chunk_index: int) -> str:
+    def _make_chunk_id(movie_id: int, movie_name: str, chunk_index: int) -> str:
         import re
         slug = re.sub(r"[^\w]", "_", movie_name.lower()).strip("_")
         slug = re.sub(r"_+", "_", slug)
-        return f"{slug}_c{chunk_index:06d}"
+        return f"m{movie_id}_{slug}_c{chunk_index:06d}"
 
     @staticmethod
     def _resolve_chroma_dir() -> str:
