@@ -147,6 +147,28 @@ class RAGService:
 
             # Step 3 — Deduplicate & format context
             chunks = self._deduplicate(raw_results)
+            if not chunks:
+                logger.warning(f"No screenplay found for movie: {movie_name}")
+
+                return {
+                    "answer": (
+                        f'I could not find a screenplay for "{movie_name}". '
+                        "Please make sure the movie has been uploaded and indexed."
+                    ),
+                    "sources": [],
+                    "session_id": session_id,
+                    "movie_title": movie_name,
+                }
+
+                return {
+                    "answer": (
+                        f'I could not find a screenplay for "{movie_name}". '
+                        "Please make sure the movie has been uploaded and indexed."
+                    ),
+                    "sources": [],
+                    "session_id": session_id,
+                    "movie_title": movie_name,
+                }
             logger.info(f"Retrieved chunk count: {len(chunks)}")
 
             # Step 4 — Build RAG prompt
@@ -188,11 +210,23 @@ class RAGService:
     # ── Internal steps ────────────────────────────────────────────────────────
 
     def _embed_query(self, question: str) -> list[float]:
-        """Embed the question string using the shared HuggingFace model."""
         try:
-            return _get_embedder().embed_query(question)
+            logger.info("[RAG] Starting embed_query()")
+
+            embedder = _get_embedder()
+
+            logger.info("[RAG] Embedder ready. Encoding question...")
+
+            vector = embedder.embed_query(question)
+
+            logger.info(
+                f"[RAG] Embedding generated successfully. Length={len(vector)}"
+            )
+
+            return vector
+
         except Exception as exc:
-            logger.error(f"[RAG] Embedding failed: {exc}")
+            logger.exception(f"[RAG] Embedding failed: {exc}")
             raise
 
     def _retrieve(
@@ -239,20 +273,28 @@ class RAGService:
             kwargs.pop("where", None)
             raw = col.query(**kwargs)
 
+        # Extract returned data
         results: list[dict[str, Any]] = []
         documents = raw.get("documents", [[]])[0]
         metadatas = raw.get("metadatas", [[]])[0]
-        distances = raw.get("distances",  [[]])[0]
+        distances = raw.get("distances", [[]])[0]
 
+        # Debug logs
+        logger.info(f"Filtering movie_name = '{movie_name}'")
+        logger.info(f"Retrieved docs: {len(documents)}")
+        logger.info(f"Raw Chroma result: {raw}")
+
+        # Build result list
         for text, meta, dist in zip(documents, metadatas, distances):
             if text:
                 results.append({
-                    "text":     text,
+                    "text": text,
                     "metadata": meta or {},
-                    "score":    round(1.0 - dist, 4),  # convert distance → similarity
+                    "score": round(1.0 - dist, 4),  # Convert distance → similarity
                 })
 
         return results
+
 
     @staticmethod
     def _deduplicate(
