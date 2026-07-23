@@ -13,8 +13,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   // Configure axios defaults
-  axios.defaults.baseURL = 'http://localhost:8000';
-  
+  axios.defaults.baseURL = import.meta.env.VITE_API_URL;
+
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -44,11 +44,11 @@ export const AuthProvider = ({ children }) => {
     const formData = new FormData();
     formData.append('username', email);
     formData.append('password', password);
-    
+
     const response = await axios.post('/api/auth/login', formData, {
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
     setToken(response.data.access_token);
     return response.data;
