@@ -68,6 +68,8 @@ class EmbeddingService:
                             "[EmbeddingService] Creating HuggingFaceEmbeddings instance..."
                         )
 
+                        logger.info("STEP 1 - Before HuggingFaceEmbeddings")
+
                         cls._embedder = HuggingFaceEmbeddings(
                             model_name=model,
                             model_kwargs={
@@ -77,6 +79,8 @@ class EmbeddingService:
                                 "normalize_embeddings": True,
                             },
                         )
+
+                        logger.info("STEP 2 - HuggingFaceEmbeddings created")
 
                         logger.info(
                             "[EmbeddingService] HuggingFaceEmbeddings instance created successfully."
