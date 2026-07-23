@@ -168,7 +168,7 @@ class ChromaManager:
         """Remove all chunks associated with *movie_title* from the collection."""
         self._assert_connected()
         self._collection.delete(  # type: ignore[union-attr]
-            where={"movie": movie_title}
+            where={"movie_name": movie_title}
         )
         logger.info(f"  Deleted all chunks for '{movie_title}' from Chroma.")
 
@@ -221,8 +221,8 @@ class ChromaManager:
         )
         movies: set[str] = set()
         for meta in result.get("metadatas", []):
-            if meta and "movie" in meta:
-                movies.add(meta["movie"])
+            if meta and "movie_name" in meta:
+                movies.add(meta["movie_name"])
         return sorted(movies)
 
     def stats(self) -> dict[str, Any]:

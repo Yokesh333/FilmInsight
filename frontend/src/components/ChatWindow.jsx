@@ -16,7 +16,7 @@ const STARTER_QUESTIONS = [
 ]
 
 export default function ChatWindow({ onNewChat }) {
-  const { messages, isLoading, sessionId, addMessage, setLoading, setError, clearChat, movieContext } = useChat()
+  const { messages, isLoading, sessionId, addMessage, setLoading, setError, clearChat, movieContext, movieTitle } = useChat()
   const [input, setInput]   = useState('')
   const endRef              = useRef(null)
   const inputRef            = useRef(null)
@@ -40,7 +40,9 @@ export default function ChatWindow({ onNewChat }) {
     setError(null)
 
     try {
-      const movieName = movieContext?.titleKey || movieContext?.title || null
+      // Prefer the explicit movie title stamped from the URL; fall back to what
+      // the sidebar auto-detected from message text.
+      const movieName = movieTitle || movieContext?.titleKey || movieContext?.title || null
       const data = await chatAPI.sendMessage(question, sessionId, movieName)
       addMessage({
         role: 'assistant',

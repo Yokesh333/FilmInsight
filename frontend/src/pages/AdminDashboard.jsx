@@ -1,18 +1,42 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useMovies } from '../context/MovieContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Film, CheckCircle, Database, Upload, Trash2, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 
+function MoviePreview({ preview }) {
+    if (!preview) return null;
+    return (
+        <div className="flex gap-4 p-4 bg-gray-800 rounded-lg mt-4 items-start w-full max-w-md text-left border border-gray-700">
+            {preview.poster_url && (
+                <img src={preview.poster_url} alt="Poster" className="w-20 h-30 object-cover rounded shadow" />
+            )}
+            <div className="flex-1">
+                <h4 className="font-bold text-white text-base">{preview.title} {preview.release_date && `(${preview.release_date.substring(0,4)})`}</h4>
+                <p className="text-xs text-gray-400 mt-1">{preview.genres}</p>
+                <div className="flex gap-3 text-xs text-gray-400 mt-2">
+                    {preview.runtime && <span>{preview.runtime} min</span>}
+                    {preview.rating > 0 && <span>⭐ {preview.rating.toFixed(1)}</span>}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function AdminDashboard() {
   const { user } = useAuth();
+  const { refreshMovies } = useMovies();
   const [activeTab, setActiveTab] = useState('overview');
   
   const [stats, setStats] = useState({ users: 0, movies: 0, pending_requests: 0, chat_calls: 0 });
   const [movies, setMovies] = useState([]);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  
   const [file, setFile] = useState(null);
+  const [tmdbUrl, setTmdbUrl] = useState('');
+  const [preview, setPreview] = useState(null);
   const [uploadMessage, setUploadMessage] = useState('');
   const [ingestMessage, setIngestMessage] = useState('');
 
@@ -36,6 +60,16 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (tmdbUrl && tmdbUrl.includes('themoviedb.org/movie/')) {
+       axios.get(`/api/admin/tmdb-preview?url=${encodeURIComponent(tmdbUrl)}`)
+         .then(res => setPreview(res.data))
+         .catch(() => setPreview(null));
+    } else {
+       setPreview(null);
+    }
+  }, [tmdbUrl]);
 
   const handleApprove = async (id) => {
     try {
@@ -76,43 +110,122 @@ export default function AdminDashboard() {
       }
   };
 
-  const handleFileUpload = async (e) => {
-      e.preventDefault();
-      if(!file) return;
-      
+  const doUpload = async (fileToUpload, tmdbUrlToUpload, reqId = null, ignoreWarning = false) => {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', fileToUpload);
+      formData.append('tmdb_url', tmdbUrlToUpload.trim());
+      formData.append('ignore_warning', ignoreWarning);
+      if (reqId) formData.append('request_id', reqId);
       
       try {
-          setUploadMessage('Uploading...');
           await axios.post('/api/upload', formData, {
               headers: { 'Content-Type': 'multipart/form-data' }
           });
-          setUploadMessage('Uploaded successfully! Trigger ingestion to process it.');
-          setFile(null);
+          return { success: true };
       } catch(err) {
-          setUploadMessage(err.response?.data?.detail || 'Upload failed');
+          if (err.response?.status === 409 && err.response?.data?.detail?.warning) {
+              if (window.confirm(err.response.data.detail.warning)) {
+                  return doUpload(fileToUpload, tmdbUrlToUpload, reqId, true);
+              }
+              return { success: false, error: 'Cancelled by user.' };
+          }
+          return { success: false, error: err.response?.data?.detail || 'Upload failed' };
       }
   };
 
-  const handleRequestFileUpload = async (e, reqId) => {
-      const selectedFile = e.target.files[0];
-      if(!selectedFile) return;
+  const handleFileUpload = async (e) => {
+      e.preventDefault();
+      if(!file || !tmdbUrl.trim()) return;
       
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('request_id', reqId);
+      const tmdbPattern = /themoviedb\.org\/movie\/(\d+)/i;
+      if (!tmdbPattern.test(tmdbUrl)) {
+          setUploadMessage('Invalid TMDB Movie URL.');
+          return;
+      }
       
-      try {
-          await axios.post('/api/upload', formData, {
-              headers: { 'Content-Type': 'multipart/form-data' }
-          });
-          alert('Screenplay uploaded and fulfilled successfully! Ingestion is running in the background.');
-          fetchData();
-      } catch(err) {
-          alert('Failed to upload screenplay for request.');
+      setUploadMessage('Uploading...');
+      const result = await doUpload(file, tmdbUrl, null, false);
+      if (result.success) {
+          setUploadMessage('Uploaded successfully! Ingestion is running in the background.');
+          setFile(null);
+          setTmdbUrl('');
+          setPreview(null);
+          refreshMovies();
+      } else {
+          setUploadMessage(result.error);
       }
   };
+
+  const RequestUploadRow = ({ req }) => {
+      const [reqFile, setReqFile] = useState(null);
+      const [reqTmdbUrl, setReqTmdbUrl] = useState('');
+      const [reqPreview, setReqPreview] = useState(null);
+      const [uploading, setUploading] = useState(false);
+
+      useEffect(() => {
+          if (reqTmdbUrl && reqTmdbUrl.includes('themoviedb.org/movie/')) {
+             axios.get(`/api/admin/tmdb-preview?url=${encodeURIComponent(reqTmdbUrl)}`)
+               .then(res => setReqPreview(res.data))
+               .catch(() => setReqPreview(null));
+          } else {
+             setReqPreview(null);
+          }
+      }, [reqTmdbUrl]);
+
+      const handleUpload = async () => {
+          if (!reqFile || !reqTmdbUrl) {
+              alert('Please select a file and enter a TMDB URL.');
+              return;
+          }
+          const tmdbPattern = /themoviedb\.org\/movie\/(\d+)/i;
+          if (!tmdbPattern.test(reqTmdbUrl)) {
+              alert('Invalid TMDB Movie URL.');
+              return;
+          }
+          
+          setUploading(true);
+          const result = await doUpload(reqFile, reqTmdbUrl, req.id, false);
+          if (result.success) {
+              alert('Screenplay uploaded and fulfilled successfully! Ingestion is running in the background.');
+              fetchData();
+              refreshMovies();
+          } else {
+              alert('Failed to upload screenplay: ' + result.error);
+          }
+          setUploading(false);
+      };
+
+      return (
+          <div className="mt-4 p-4 bg-gray-900 rounded-lg border border-gray-700">
+              <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2"><Upload size={14}/> Fulfill Request</h4>
+              <div className="flex flex-col gap-3">
+                  <input 
+                      type="text" 
+                      placeholder="TMDB Movie URL"
+                      value={reqTmdbUrl}
+                      onChange={(e) => setReqTmdbUrl(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-film-accent transition-colors"
+                  />
+                  <input 
+                      type="file" 
+                      accept=".pdf" 
+                      onChange={(e) => setReqFile(e.target.files[0])}
+                      className="text-gray-400 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-film-accent/20 file:text-film-accent hover:file:bg-film-accent/30"
+                  />
+                  
+                  <MoviePreview preview={reqPreview} />
+                  
+                  <button 
+                      onClick={handleUpload}
+                      disabled={!reqFile || !reqTmdbUrl || uploading}
+                      className="bg-film-accent text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-film-accent/90 transition-colors self-start disabled:opacity-50 mt-2"
+                  >
+                      {uploading ? 'Uploading...' : 'Upload & Complete'}
+                  </button>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl flex gap-8">
@@ -240,19 +353,37 @@ export default function AdminDashboard() {
 
                         <div>
                             <h3 className="text-xl font-bold text-white mb-4">Upload New Screenplay</h3>
-                            <form onSubmit={handleFileUpload} className="bg-gray-900 p-6 rounded-xl border border-gray-800 border-dashed flex flex-col items-center justify-center gap-4">
-                                <Upload size={32} className="text-gray-500" />
-                                <input 
-                                    type="file" 
-                                    accept=".pdf" 
-                                    onChange={(e) => setFile(e.target.files[0])}
-                                    className="text-gray-400 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-film-accent/20 file:text-film-accent hover:file:bg-film-accent/30"
-                                />
-                                <button type="submit" disabled={!file} className="bg-white text-black px-6 py-2 rounded-lg font-medium hover:bg-gray-200 transition-colors disabled:opacity-50">
-                                    Upload PDF
+                            <form onSubmit={handleFileUpload} className="bg-gray-900 p-6 rounded-xl border border-gray-800 flex flex-col items-center justify-center gap-4">
+                                <div className="w-full max-w-md">
+                                    <label className="block text-sm text-gray-400 mb-2 font-medium">TMDB Movie URL</label>
+                                    <input 
+                                        type="text" 
+                                        required
+                                        value={tmdbUrl}
+                                        onChange={(e) => setTmdbUrl(e.target.value)}
+                                        placeholder="https://www.themoviedb.org/movie/639-when-harry-met-sally"
+                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-film-accent transition-colors"
+                                    />
+                                </div>
+
+                                <MoviePreview preview={preview} />
+
+                                <div className="w-full max-w-md border-2 border-dashed border-gray-700 rounded-lg p-6 flex flex-col items-center gap-4 mt-2 hover:border-film-accent/50 transition-colors">
+                                    <Upload size={32} className="text-gray-500" />
+                                    <input 
+                                        type="file" 
+                                        accept=".pdf" 
+                                        required
+                                        onChange={(e) => setFile(e.target.files[0])}
+                                        className="text-gray-400 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-film-accent/20 file:text-film-accent hover:file:bg-film-accent/30"
+                                    />
+                                </div>
+                                
+                                <button type="submit" disabled={!file || !tmdbUrl} className="bg-white text-black px-8 py-3 rounded-lg font-bold hover:bg-gray-200 transition-colors disabled:opacity-50 mt-4">
+                                    Upload Screenplay
                                 </button>
                             </form>
-                            {uploadMessage && <p className="mt-3 text-sm text-gray-400 text-center">{uploadMessage}</p>}
+                            {uploadMessage && <p className={`mt-4 text-sm text-center ${uploadMessage.includes('successfully') ? 'text-green-400' : 'text-red-400'}`}>{uploadMessage}</p>}
                         </div>
                     </div>
                 )}
@@ -264,39 +395,34 @@ export default function AdminDashboard() {
                         {loading ? <p className="text-gray-500">Loading...</p> : (
                             <div className="space-y-4">
                                 {requests.map(req => (
-                                    <div key={req.id} className="bg-gray-900 p-5 rounded-xl border border-gray-800 flex justify-between items-center">
-                                        <div>
-                                            <h3 className="text-lg font-bold text-white">{req.title}</h3>
-                                            <p className="text-sm text-gray-400">Requested by: <span className="text-gray-300">{req.username}</span> on {new Date(req.created_at).toLocaleDateString()}</p>
-                                        </div>
-                                        
-                                        {req.status === 'pending' ? (
-                                            <div className="flex gap-2">
-                                                <button onClick={() => handleApprove(req.id)} className="px-4 py-2 bg-green-500/10 text-green-500 rounded-lg text-sm font-bold hover:bg-green-500/20">Approve</button>
-                                                <button onClick={() => handleReject(req.id)} className="px-4 py-2 bg-red-500/10 text-red-500 rounded-lg text-sm font-bold hover:bg-red-500/20">Reject</button>
+                                    <div key={req.id} className="bg-gray-900 p-5 rounded-xl border border-gray-800 flex flex-col">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <h3 className="text-lg font-bold text-white">{req.title}</h3>
+                                                <p className="text-sm text-gray-400">Requested by: <span className="text-gray-300">{req.username}</span> on {new Date(req.created_at).toLocaleDateString()}</p>
                                             </div>
-                                        ) : req.status === 'approved' ? (
-                                            <div className="flex items-center gap-4">
+                                            
+                                            {req.status === 'pending' ? (
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => handleApprove(req.id)} className="px-4 py-2 bg-green-500/10 text-green-500 rounded-lg text-sm font-bold hover:bg-green-500/20">Approve</button>
+                                                    <button onClick={() => handleReject(req.id)} className="px-4 py-2 bg-red-500/10 text-red-500 rounded-lg text-sm font-bold hover:bg-red-500/20">Reject</button>
+                                                </div>
+                                            ) : req.status === 'approved' ? (
                                                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-500/10 text-green-500">
                                                     APPROVED
                                                 </span>
-                                                <label className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-film-accent text-white rounded-lg text-sm font-bold hover:bg-film-accent/90 transition-colors">
-                                                    <Upload size={14} />
-                                                    Upload PDF
-                                                    <input 
-                                                        type="file" 
-                                                        accept=".pdf" 
-                                                        className="hidden" 
-                                                        onChange={(e) => handleRequestFileUpload(e, req.id)}
-                                                    />
-                                                </label>
-                                            </div>
-                                        ) : (
-                                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                                req.status === 'fulfilled' ? 'bg-blue-500/10 text-blue-500' : 'bg-red-500/10 text-red-500'
-                                            }`}>
-                                                {req.status.toUpperCase()}
-                                            </span>
+                                            ) : (
+                                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                    req.status === 'fulfilled' ? 'bg-blue-500/10 text-blue-500' : 'bg-red-500/10 text-red-500'
+                                                }`}>
+                                                    {req.status.toUpperCase()}
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Fulfillment Form if Approved */}
+                                        {req.status === 'approved' && (
+                                            <RequestUploadRow req={req} />
                                         )}
                                     </div>
                                 ))}

@@ -6,20 +6,11 @@ Pipeline flow (no Flowise involved):
         → Download PDF bytes
         → PyMuPDF  (text extraction)
         → RecursiveCharacterTextSplitter  (chunking)
-        → HuggingFace sentence-transformers/all-MiniLM-L6-v2  (embeddings)
-        → Persistent Chroma (local chroma_db/)
+        → Check ChromaDB for duplicate movie embeddings
+        → Process in small adaptive batches:
+            → HuggingFace Embeddings (via EmbeddingService)
+            → Persistent Chroma (local chroma_db/)
         → Return chunk count
-
-Every chunk stored in Chroma includes the following metadata:
-    • movie_name    – human-readable title parsed from the filename
-    • movie_id      – PostgreSQL movie_scripts.id (int)
-    • chunk_index   – zero-based chunk position within the document
-    • page_number   – source PDF page (1-based)
-    • uploaded_at   – ISO-8601 timestamp of when the upload was processed
-    • storage_path  – filename as stored in the Supabase bucket
-
-This service is called by the upload router as a FastAPI BackgroundTask.
-It NEVER calls any Flowise API.
 """
 
 from __future__ import annotations
@@ -61,21 +52,10 @@ class IngestionError(Exception):
 # ── Main service ──────────────────────────────────────────────────────────────
 
 class IngestionService:
-    """
-    Orchestrates the full local ingestion pipeline for a single screenplay PDF.
-
-    Components used (all local — no Flowise):
-        • requests        – download PDF from Supabase Storage
-        • PyMuPDF (fitz)  – extract text page-by-page
-        • langchain-text-splitters – RecursiveCharacterTextSplitter
-        • sentence-transformers   – HuggingFace all-MiniLM-L6-v2 embeddings
-        • chromadb                – PersistentClient vector store
-    """
-
     # ── Chunking defaults (override via env vars or config) ───────────────────
     CHUNK_SIZE    = int(os.environ.get("CHUNK_SIZE",    "800"))
     CHUNK_OVERLAP = int(os.environ.get("CHUNK_OVERLAP", "150"))
-    BATCH_SIZE    = int(os.environ.get("CHROMA_BATCH_SIZE", "100"))
+    BATCH_SIZE    = int(os.environ.get("CHROMA_BATCH_SIZE", "32"))
 
     # Screenplay-aware separators for RecursiveCharacterTextSplitter
     _SEPARATORS = ["\n\n\n", "\n\n", "\n", ". ", "! ", "? ", ", ", " ", ""]
@@ -88,7 +68,6 @@ class IngestionService:
         self.supabase_key    = s.SUPABASE_SERVICE_ROLE_KEY or ""
         self.supabase_bucket = "movie_scripts"
 
-        # Chroma paths — honour Docker env-var overrides
         self.chroma_dir = Path(
             os.environ.get("CHROMA_DB_DIR", "")
             or s.CHROMA_DB_DIR
@@ -99,103 +78,170 @@ class IngestionService:
             or s.CHROMA_COLLECTION_NAME
             or "filminsight_scripts"
         )
-
-        self.embedding_model  = getattr(s, "EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
-        self.embedding_device = getattr(s, "EMBEDDING_DEVICE", "cpu")
-
-        # Lazily loaded — heavy models only initialised on first use
-        self._embedder   = None
-        self._splitter   = None
+        
+        self._splitter = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def ingest_from_supabase(
         self,
         supabase_filename: str,
+        movie_name: str,
         movie_id: int | None = None,
     ) -> int:
-        """
-        Download *supabase_filename* from Supabase Storage and run the full
-        local ingestion pipeline.
-
-        Parameters
-        ----------
-        supabase_filename:
-            Filename as stored in the Supabase bucket (e.g. ``"Inception.pdf"``).
-        movie_id:
-            The PostgreSQL ``movie_scripts.id`` — stored as metadata on every chunk.
-
-        Returns
-        -------
-        int
-            Number of chunks stored in Chroma.
-
-        Raises
-        ------
-        IngestionError
-            On download, text-extraction, or Chroma write failures.
-        """
-        t_start = time.monotonic()
-        logger.info(f"[Ingestion] ▶  Starting local pipeline for: {supabase_filename}")
-
-        # Step 1 — Download PDF from Supabase
-        pdf_bytes = self._download_pdf(supabase_filename)
-        logger.info(
-            f"[Ingestion]    Downloaded {len(pdf_bytes) / 1024:.1f} KB "
-            f"from Supabase/{self.supabase_bucket}/{supabase_filename}"
+        return self.ingest_movie(
+            movie_name=movie_name,
+            movie_id=movie_id or -1,
+            supabase_filename=supabase_filename
         )
 
-        # Step 2 — Extract text using PyMuPDF
-        pages = self._extract_text(pdf_bytes, supabase_filename)
-        if not pages:
-            raise IngestionError(
-                f"PyMuPDF found no extractable text in '{supabase_filename}'. "
-                "The PDF may be scanned/image-only."
-            )
-        logger.info(f"[Ingestion]    PyMuPDF extracted {len(pages)} pages.")
+    def ingest_movie(
+        self,
+        movie_name: str,
+        movie_id: int,
+        supabase_filename: str | None = None,
+        local_pdf_path: str | Path | None = None,
+    ) -> int:
+        t_start = time.monotonic()
+        logger.info(f"[Ingestion] ▶  Starting pipeline for: {movie_name}")
 
-        # Step 3 — Split into chunks
+        collection = self._get_chroma_collection()
+
+        # Step 4: Safe Retry - Delete existing vectors for this movie to prevent duplicates
+        try:
+            collection.delete(where={"movie_name": movie_name})
+            logger.info(f"[Ingestion] Cleared existing Chroma vectors for '{movie_name}' to ensure clean slate.")
+        except Exception as exc:
+            logger.warning(f"[Ingestion] Failed to clear existing Chroma vectors for '{movie_name}': {exc}")
+
+        # Resolve PDF source
+        pdf_bytes = None
+        source_name = ""
+        
+        if supabase_filename:
+            # Download from Supabase
+            pdf_bytes = self._download_pdf(supabase_filename)
+            source_name = f"Supabase/{supabase_filename}"
+        elif local_pdf_path:
+            local_path = Path(local_pdf_path)
+            if local_path.exists():
+                pdf_bytes = local_path.read_bytes()
+                source_name = f"Local/{local_path.name}"
+            else:
+                raise IngestionError(f"Local PDF file not found: {local_pdf_path}")
+        else:
+            raise IngestionError("No PDF source provided (neither Supabase filename nor local path)")
+
+        logger.info(f"[Ingestion] Loaded PDF from {source_name} ({len(pdf_bytes)/1024:.1f} KB)")
+
+        # PyMuPDF text extraction
+        pages = self._extract_text(pdf_bytes, movie_name)
+        if not pages:
+            raise IngestionError("PyMuPDF found no extractable text in the PDF. The PDF may be scanned/image-only.")
+        logger.info(f"[Ingestion] Extracted {len(pages)} pages.")
+
+        # Split into chunks
         chunks = self._split_pages(pages)
         if not chunks:
-            raise IngestionError(
-                f"RecursiveCharacterTextSplitter produced 0 chunks for '{supabase_filename}'."
-            )
-        logger.info(f"[Ingestion]    Split into {len(chunks)} chunks.")
+            raise IngestionError("Text splitter produced 0 chunks.")
+        logger.info(f"[Ingestion] Split into {len(chunks)} chunks.")
 
-        # Step 4 — Build movie title from filename
-        movie_name  = self._filename_to_title(supabase_filename)
+        # Get Rich Metadata (TMDb / OMDb)
+        from app.db.database import SessionLocal
+        from app.models.movie_script import MovieScript
+        
+        year = "N/A"
+        genres = "N/A"
+        director = "N/A"
+        actors = "N/A"
+        runtime = "N/A"
+        rating = "N/A"
+        poster_url = "N/A"
+        overview = "N/A"
+        tmdb_id = -1
+        
+        with SessionLocal() as db:
+            script = db.query(MovieScript).filter(MovieScript.id == movie_id).first()
+            if script:
+                year = script.release_date[:4] if script.release_date else "N/A"
+                genres = script.genres or "N/A"
+                runtime = str(script.runtime) if script.runtime else "N/A"
+                rating = str(script.rating) if script.rating else "N/A"
+                poster_url = script.poster_url or "N/A"
+                overview = script.overview or "N/A"
+                tmdb_id = script.tmdb_id or -1
+
+        # Generates embeddings and stores in Chroma
         uploaded_at = datetime.now(tz=timezone.utc).isoformat()
-
-        # Step 5 — Generate embeddings
-        logger.info(f"[Ingestion]    Generating embeddings for {len(chunks)} chunks…")
-        embeddings = self._embed(chunks)
-        logger.info(f"[Ingestion]    Embeddings ready ({len(embeddings)} vectors).")
-
-        # Step 6 — Store in Chroma with full metadata
-        stored = self._upsert_chroma(
+        stored = self._embed_and_upsert_batches(
             chunks=chunks,
-            embeddings=embeddings,
             movie_name=movie_name,
             movie_id=movie_id,
             uploaded_at=uploaded_at,
-            storage_path=supabase_filename,
+            storage_path=supabase_filename or str(local_pdf_path),
+            collection=collection,
+            year=year,
+            genre=genres,
+            director=director,
+            actors=actors,
+            runtime=runtime,
+            imdb_rating=rating,
+            poster=poster_url,
+            overview=overview,
         )
 
+        # Verification step before marking ready
+        logger.info(f"[Ingestion] Running post-ingestion verification query for '{movie_name}'…")
+        verify_res = collection.get(where={"movie_name": movie_name}, limit=1)
+        verify_ids = verify_res.get("ids", [])
+        if not verify_ids or len(verify_ids) == 0:
+            raise IngestionError("Verification failed: zero vectors retrieved from Chroma after ingestion.")
+        
+        # Verify metadata
+        verify_metas = verify_res.get("metadatas", [])
+        if verify_metas and verify_metas[0]:
+            meta = verify_metas[0]
+            if meta.get("movie_name") != movie_name:
+                raise IngestionError(f"Verification failed: metadata mismatch. Expected movie_name '{movie_name}', got '{meta.get('movie_name')}'")
+        
         elapsed = round((time.monotonic() - t_start), 1)
-        logger.info(
-            f"[Ingestion] ✔  '{movie_name}' — {stored} chunks stored in Chroma. "
-            f"({elapsed}s total)"
-        )
+        logger.info(f"[Ingestion] Verification: PASS. {stored} chunks stored in Chroma. ({elapsed}s total)")
+        
+        # Structured log (Part 11)
+        print(f"\n========================================")
+        print(f"Movie: {movie_name}")
+        print(f"TMDB ID: {tmdb_id}")
+        print(f"Chunks: {len(chunks)}")
+        print(f"Vectors Inserted: {stored}")
+        print(f"Verification: PASS")
+        print(f"Status: READY")
+        print(f"========================================\n")
+        
         return stored
 
     # ── Step implementations ──────────────────────────────────────────────────
 
-    def _download_pdf(self, filename: str) -> bytes:
-        """Download a PDF from Supabase Storage and return its raw bytes."""
-        url = (
-            f"{self.supabase_url}/storage/v1/object"
-            f"/{self.supabase_bucket}/{filename}"
+    def _get_chroma_collection(self):
+        try:
+            import chromadb
+            from chromadb.config import Settings
+        except ImportError as exc:
+            raise IngestionError(
+                "chromadb is required. Add 'chromadb>=0.5.0' to requirements.txt."
+            ) from exc
+
+        self.chroma_dir.mkdir(parents=True, exist_ok=True)
+        client = chromadb.PersistentClient(
+            path=str(self.chroma_dir),
+            settings=Settings(anonymized_telemetry=False),
         )
+        return client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+    def _download_pdf(self, filename: str) -> bytes:
+        url = f"{self.supabase_url}/storage/v1/object/{self.supabase_bucket}/{filename}"
         headers = {
             "apikey":        self.supabase_key,
             "Authorization": f"Bearer {self.supabase_key}",
@@ -209,24 +255,14 @@ class IngestionService:
                 f"Failed to download '{filename}' from Supabase: {exc}"
             ) from exc
 
-    def _extract_text(
-        self, pdf_bytes: bytes, filename: str
-    ) -> list[dict[str, Any]]:
-        """
-        Use PyMuPDF to extract text page-by-page.
-
-        Returns a list of dicts: ``{"page_number": int, "text": str}``.
-        """
+    def _extract_text(self, pdf_bytes: bytes, filename: str) -> list[dict[str, Any]]:
         try:
             import fitz  # PyMuPDF
         except ImportError as exc:
-            raise IngestionError(
-                "PyMuPDF is required. Add 'PyMuPDF>=1.23.0' to requirements.txt."
-            ) from exc
+            raise IngestionError("PyMuPDF is required.") from exc
 
         pages: list[dict[str, Any]] = []
         try:
-            # Write bytes to a temp file so fitz.open() works cross-platform
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(pdf_bytes)
                 tmp_path = tmp.name
@@ -237,15 +273,13 @@ class IngestionService:
                     page     = doc[idx]
                     raw_text = page.get_text("text")  # type: ignore[attr-defined]
                     if not raw_text or len(raw_text.strip()) < 30:
-                        continue  # skip blank / image-only pages
+                        continue
                     text = self._clean_text(raw_text)
                     pages.append({"page_number": idx + 1, "text": text})
             finally:
                 doc.close()
         except Exception as exc:
-            raise IngestionError(
-                f"PyMuPDF failed to parse '{filename}': {exc}"
-            ) from exc
+            raise IngestionError(f"PyMuPDF failed to parse '{filename}': {exc}") from exc
         finally:
             try:
                 os.unlink(tmp_path)
@@ -254,15 +288,7 @@ class IngestionService:
 
         return pages
 
-    def _split_pages(
-        self, pages: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """
-        Apply RecursiveCharacterTextSplitter to each page.
-
-        Returns a flat list of chunk dicts:
-            ``{"text": str, "page_number": int, "chunk_index": int}``
-        """
+    def _split_pages(self, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         splitter = self._get_splitter()
         result: list[dict[str, Any]] = []
         global_idx = 0
@@ -282,93 +308,81 @@ class IngestionService:
 
         return result
 
-    def _embed(self, chunks: list[dict[str, Any]]) -> list[list[float]]:
-        """Generate embeddings for all chunks using HuggingFace sentence-transformers."""
-        embedder = self._get_embedder()
-        texts    = [c["text"] for c in chunks]
-        try:
-            return embedder.embed_documents(texts)
-        except Exception as exc:
-            raise IngestionError(f"Embedding generation failed: {exc}") from exc
-
-    def _upsert_chroma(
+    def _embed_and_upsert_batches(
         self,
         chunks:      list[dict[str, Any]],
-        embeddings:  list[list[float]],
         movie_name:  str,
         movie_id:    int | None,
         uploaded_at: str,
         storage_path: str,
+        collection:  Any,
+        year: str,
+        genre: str,
+        director: str,
+        actors: str,
+        runtime: str,
+        imdb_rating: str,
+        poster: str,
+        overview: str,
     ) -> int:
-        """
-        Upsert chunks + embeddings into the persistent Chroma collection.
-
-        Each document's metadata includes:
-            movie_name, movie_id, chunk_index, page_number,
-            uploaded_at, storage_path
-        """
-        try:
-            import chromadb
-            from chromadb.config import Settings
-        except ImportError as exc:
-            raise IngestionError(
-                "chromadb is required. Add 'chromadb>=0.5.0' to requirements.txt."
-            ) from exc
-
-        self.chroma_dir.mkdir(parents=True, exist_ok=True)
-
-        client     = chromadb.PersistentClient(
-            path=str(self.chroma_dir),
-            settings=Settings(anonymized_telemetry=False),
-        )
-        collection = client.get_or_create_collection(
-            name=self.collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-
-        ids:   list[str]           = []
-        docs:  list[str]           = []
-        metas: list[dict[str, Any]] = []
-        vecs:  list[list[float]]   = []
-
-        for chunk, vector in zip(chunks, embeddings):
-            chunk_index = chunk["chunk_index"]
-            chunk_id    = self._make_chunk_id(movie_name, chunk_index)
-
-            meta: dict[str, Any] = {
-                "movie_name":    movie_name,
-                "movie_id":      movie_id if movie_id is not None else -1,
-                "chunk_index":   chunk_index,
-                "page_number":   chunk["page_number"],
-                "uploaded_at":   uploaded_at,
-                "storage_path":  storage_path,
-                "source":        "screenplay",
-                "char_count":    len(chunk["text"]),
-            }
-
-            ids.append(chunk_id)
-            docs.append(chunk["text"])
-            metas.append(meta)
-            vecs.append(vector)
-
-        # Upsert in batches to avoid memory spikes on large screenplays
+        from app.services.embedding_service import get_embedder
+        embedder = get_embedder()
+        
         total_upserted = 0
-        n_batches      = math.ceil(len(ids) / self.BATCH_SIZE)
+        n_batches = math.ceil(len(chunks) / self.BATCH_SIZE)
 
         for i in range(n_batches):
             s = i * self.BATCH_SIZE
             e = s + self.BATCH_SIZE
+            batch_chunks = chunks[s:e]
+            
+            # Generate embeddings for the batch
+            try:
+                texts = [c["text"] for c in batch_chunks]
+                batch_embeddings = embedder.embed_documents(texts)
+            except Exception as exc:
+                raise IngestionError(f"Embedding generation failed on batch {i+1}: {exc}") from exc
+                
+            ids:   list[str]           = []
+            docs:  list[str]           = []
+            metas: list[dict[str, Any]] = []
+
+            for chunk in batch_chunks:
+                chunk_index = chunk["chunk_index"]
+                chunk_id    = self._make_chunk_id(movie_name, chunk_index)
+
+                meta: dict[str, Any] = {
+                    "movie_name":    movie_name,
+                    "movie_id":      movie_id if movie_id is not None else -1,
+                    "chunk_index":   chunk_index,
+                    "page_number":   chunk["page_number"],
+                    "uploaded_at":   uploaded_at,
+                    "storage_path":  storage_path,
+                    "source":        "screenplay",
+                    "char_count":    len(chunk["text"]),
+                    "year":         year,
+                    "genre":        genre,
+                    "director":     director,
+                    "actors":       actors,
+                    "runtime":      runtime,
+                    "imdb_rating":  imdb_rating,
+                    "poster":       poster,
+                    "overview":     overview,
+                }
+
+                ids.append(chunk_id)
+                docs.append(chunk["text"])
+                metas.append(meta)
+
             collection.upsert(
-                ids=ids[s:e],
-                documents=docs[s:e],
-                metadatas=metas[s:e],
-                embeddings=vecs[s:e],
+                ids=ids,
+                documents=docs,
+                metadatas=metas,
+                embeddings=batch_embeddings,
             )
-            total_upserted += len(ids[s:e])
-            logger.info(
-                f"[Ingestion]    Chroma batch {i+1}/{n_batches} "
-                f"({total_upserted}/{len(ids)} chunks)"
-            )
+            
+            total_upserted += len(ids)
+            logger.info(f"[Ingestion]    Chroma batch {i+1}/{n_batches} processed ({total_upserted}/{len(chunks)} chunks)")
 
         return total_upserted
 
@@ -389,26 +403,8 @@ class IngestionService:
             )
         return self._splitter
 
-    def _get_embedder(self):
-        if self._embedder is None:
-            try:
-                from langchain_huggingface import HuggingFaceEmbeddings
-            except ImportError:
-                from langchain.embeddings import HuggingFaceEmbeddings  # type: ignore
-            logger.info(
-                f"[Ingestion]    Loading embedding model: "
-                f"{self.embedding_model} (device={self.embedding_device})"
-            )
-            self._embedder = HuggingFaceEmbeddings(
-                model_name=self.embedding_model,
-                model_kwargs={"device": self.embedding_device},
-                encode_kwargs={"normalize_embeddings": True},
-            )
-        return self._embedder
-
     @staticmethod
     def _clean_text(text: str) -> str:
-        """Light-touch cleaning: normalize line endings and collapse excess blank lines."""
         import re
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         text = re.sub(r"[^\x09\x0A\x20-\x7E\x80-\xFF]", "", text)
@@ -427,7 +423,6 @@ class IngestionService:
 
     @staticmethod
     def _filename_to_title(filename: str) -> str:
-        """Convert a bucket filename into a human-readable title."""
         import re
         stem = Path(filename).stem
         stem = re.sub(r"[\(\[]\s*\d{4}\s*[\)\]]", "", stem)
@@ -438,7 +433,6 @@ class IngestionService:
 
     @staticmethod
     def _make_chunk_id(movie_name: str, chunk_index: int) -> str:
-        """Generate a deterministic, filesystem-safe chunk ID."""
         import re
         slug = re.sub(r"[^\w]", "_", movie_name.lower()).strip("_")
         slug = re.sub(r"_+", "_", slug)
@@ -446,16 +440,13 @@ class IngestionService:
 
     @staticmethod
     def _resolve_chroma_dir() -> str:
-        """Walk up from this file to find the project-root chroma_db/."""
         here = Path(__file__).resolve().parent
         for candidate in [here.parent.parent, here.parent.parent.parent]:
             chroma = candidate / "chroma_db"
             if chroma.exists():
                 return str(chroma)
-        # Default: project root sibling of backend/
         return str(here.parent.parent / "chroma_db")
 
 
 def get_ingestion_service() -> IngestionService:
-    """FastAPI dependency factory."""
     return IngestionService()

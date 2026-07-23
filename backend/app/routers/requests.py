@@ -18,7 +18,7 @@ class RequestCreate(BaseModel):
 def create_request(req: RequestCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     new_req = MovieRequest(
         user_id=user.id,
-        title=req.title,
+        movie_name=req.title,
     )
     db.add(new_req)
     db.commit()
@@ -28,4 +28,12 @@ def create_request(req: RequestCreate, db: Session = Depends(get_db), user: User
 @router.get("")
 def get_user_requests(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     requests = db.query(MovieRequest).filter(MovieRequest.user_id == user.id).all()
-    return requests
+    # Map movie_name to title for the frontend
+    return [
+        {
+            "id": r.id,
+            "title": r.movie_name,
+            "status": r.status,
+            "requested_at": r.requested_at
+        } for r in requests
+    ]

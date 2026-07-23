@@ -15,13 +15,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/recent', tags=['Recent'])
 
 @router.get('', response_model=List[RecentlyViewedResponse])
-async def get_recent(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_recent(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get all recently viewed movies for the current user."""
     recent = db.query(RecentlyViewedMovie).filter(RecentlyViewedMovie.user_id == current_user.id).order_by(RecentlyViewedMovie.viewed_at.desc()).limit(20).all()
     return recent
 
 @router.post('', response_model=RecentlyViewedResponse)
-async def add_recent(
+def add_recent(
     recent: RecentlyViewedCreate, 
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)

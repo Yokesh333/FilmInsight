@@ -132,7 +132,7 @@ def mark_movie_processed(
         try:
             conn = psycopg2.connect(config.DATABASE_URL)
             cur = conn.cursor()
-            cur.execute("UPDATE movie_scripts SET status = 'ingested' WHERE id = %s", (record_id,))
+            cur.execute("UPDATE movie_scripts SET status = 'READY' WHERE id = %s", (record_id,))
             conn.commit()
             cur.close()
             conn.close()
@@ -213,7 +213,7 @@ def discover_new_pdfs(
     try:
         conn = psycopg2.connect(config.DATABASE_URL)
         cur = conn.cursor()
-        cur.execute("SELECT id, title, file_path FROM movie_scripts WHERE status = 'uploaded'")
+        cur.execute("SELECT id, title, file_path FROM movie_scripts WHERE status = 'UPLOADED'")
         rows = cur.fetchall()
         cur.close()
         conn.close()

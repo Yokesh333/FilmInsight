@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ChatProvider } from './context/ChatContext'
 import { AuthProvider } from './context/AuthContext'
+import { MovieProvider } from './context/MovieContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -41,16 +42,18 @@ function AnimatedRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <ChatProvider>
-        <BrowserRouter>
-          <div className="min-h-screen flex flex-col bg-film-bg text-white font-sans">
-            <Navbar />
-            <main className="flex-1">
-              <AnimatedRoutes />
-            </main>
-          </div>
-        </BrowserRouter>
-      </ChatProvider>
+      <MovieProvider>
+        <ChatProvider>
+          <BrowserRouter>
+            <div className="min-h-screen flex flex-col bg-film-bg text-white font-sans">
+              <Navbar />
+              <main className="flex-1">
+                <AnimatedRoutes />
+              </main>
+            </div>
+          </BrowserRouter>
+        </ChatProvider>
+      </MovieProvider>
     </AuthProvider>
   )
 }

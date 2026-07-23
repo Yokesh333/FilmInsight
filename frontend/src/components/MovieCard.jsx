@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Film, Star, Play, Heart } from 'lucide-react'
+import { Film, Star, Play, Heart, AlertCircle } from 'lucide-react'
 
 export default function MovieCard({ movie, onClick, index, isFavorite, onToggleFavorite }) {
   const [hovered,     setHovered]     = useState(false)
@@ -24,7 +24,7 @@ export default function MovieCard({ movie, onClick, index, isFavorite, onToggleF
       transition={{ delay: index !== undefined ? index * 0.07 : 0, duration: 0.5 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={() => onClick(movie)}
+      onClick={() => { console.log('[TRACE][0] MovieCard clicked', { title: movie.title, status: movie.status, id: movie.id }); onClick(movie) }}
       className="cursor-pointer group"
     >
       {/* Poster */}
@@ -103,9 +103,18 @@ export default function MovieCard({ movie, onClick, index, isFavorite, onToggleF
           </div>
         )}
 
+        {/* Failed Status Overlay */}
+        {movie.status === 'FAILED' && (
+          <div className="absolute inset-0 bg-red-900/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center z-20">
+            <AlertCircle size={24} className="text-white mb-2" />
+            <p className="text-white font-bold text-xs">Embedding failed.</p>
+            <p className="text-white/80 text-[10px] mt-1">Retry ingestion.</p>
+          </div>
+        )}
+
         {/* Hover CTA */}
         <AnimatePresence>
-          {hovered && (
+          {hovered && (!movie.status || movie.status === 'READY') && (
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}

@@ -14,8 +14,9 @@ from dotenv import load_dotenv
 _INGESTION_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = _INGESTION_DIR.parent
 
-# Load .env from project root (supplements any already-set env vars)
+# Load .env from project root and backend folder
 load_dotenv(PROJECT_ROOT / ".env", override=False)
+load_dotenv(PROJECT_ROOT / "backend" / ".env", override=False)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Directory paths

@@ -86,6 +86,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 @router.put("/profile", response_model=UserResponse)
 def update_profile(user_update: UserUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    current_user = db.merge(current_user)
     if user_update.email and user_update.email != current_user.email:
         if db.query(User).filter(User.email == user_update.email).first():
             raise HTTPException(status_code=400, detail="Email already registered")

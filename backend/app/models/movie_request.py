@@ -7,8 +7,8 @@ from app.db.database import Base
 class MovieRequest(Base):
     __tablename__ = "movie_requests"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    title = Column(String, nullable=False)
+    movie_name = Column(String, nullable=False)
     status = Column(String, default="pending", nullable=False) # pending, approved, rejected
-    created_at = Column(DateTime, default=datetime.utcnow)
+    requested_at = Column(DateTime, default=datetime.utcnow)

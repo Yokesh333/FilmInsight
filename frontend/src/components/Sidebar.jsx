@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, MessageCircle, Film, Clock, Trash2, Loader2 } from 'lucide-react'
 import { useChat } from '../context/ChatContext'
 import { movieAPI } from '../services/api'
+import { useMovies } from '../context/MovieContext'
 import MovieDetailsCard from './MovieDetailsCard'
 import TriviaCard from './TriviaCard'
 import CastCard from './CastCard'
@@ -17,27 +18,9 @@ const HISTORY_MOCK = [
 
 const SIDEBAR_TABS = ['Movie', 'Cast', 'Quotes', 'Trivia']
 
-// Extract a movie title from a user message
-function extractMovieTitle(text) {
-  const lower = text.toLowerCase()
-  const knownMovies = [
-    'inception', 'interstellar', 'the dark knight', 'batman begins',
-    'memento', 'tenet', 'oppenheimer', 'the prestige', 'dunkirk',
-    '500 days of summer', 'deadpool', 'spider-man', 'beauty and the beast',
-    'bones and all', 'superman', 'frankenstein', 'hamnet', 'the dark knight rises',
-    'project hail mary',
-  ]
-  for (const title of knownMovies) {
-    if (lower.includes(title)) return title
-  }
-  // Try to extract quoted titles
-  const quoted = text.match(/[""]([^""]+)[""]/)?.[1]
-  if (quoted) return quoted
-  return null
-}
-
 export default function Sidebar({ onNewChat }) {
-  const { messages, movieContext, setMovieContext } = useChat()
+  const { messages, movieContext, setMovieContext, movieTitle } = useChat()
+  const { movies: libraryMovies } = useMovies()
   const [activeTab,  setActiveTab]  = useState('Movie')
   const [history,    setHistory]    = useState(HISTORY_MOCK)
   const [historyTab, setHistoryTab] = useState('history') // 'history' | 'info'
@@ -46,28 +29,71 @@ export default function Sidebar({ onNewChat }) {
 
   const removeHistory = (id) => setHistory(h => h.filter(i => i.id !== id))
 
+  // When Chat.jsx stamps a new movieTitle from the URL, fetch sidebar details
+  // for that movie immediately (before any messages arrive).
+  useEffect(() => {
+    if (!movieTitle) {
+      // Movie was cleared — reset sidebar data too
+      setMovieData(null)
+      return
+    }
+    // Avoid re-fetching if we already have data for this title
+    if (movieData?.titleKey === movieTitle) return
+
+    setFetching(true)
+    movieAPI.getMovieDetails(movieTitle)
+      .then((data) => {
+        setMovieData({ ...data, titleKey: movieTitle })
+        setMovieContext({ ...data, titleKey: movieTitle })
+      })
+      .catch(() => { /* silently fail */ })
+      .finally(() => setFetching(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movieTitle])
+
   // Auto-detect movie from messages and fetch details
   useEffect(() => {
     const userMessages = messages.filter(m => m.role === 'user')
     if (userMessages.length === 0) return
 
     const lastMsg = userMessages[userMessages.length - 1].content
-    const title   = extractMovieTitle(lastMsg)
+    
+    // Dynamic movie title extraction from registry
+    const lower = lastMsg.toLowerCase()
+    const readyMovies = libraryMovies.filter(m => m.status === 'READY')
+    const sortedMovies = [...readyMovies].sort((a, b) => b.title.length - a.title.length)
+    
+    let title = null
+    for (const movie of sortedMovies) {
+      const movieTitleLower = movie.title.toLowerCase()
+      if (lower.includes(movieTitleLower)) {
+        title = movie.title
+        break
+      }
+    }
+    
+    if (!title) {
+      const quoted = lastMsg.match(/["'\u2018\u2019]([^"'\u2018\u2019]+)["'\u2018\u2019]/)?.[1]
+      if (quoted) title = quoted
+    }
 
-    if (!title || title === movieContext?.titleKey) return
+    // Guard: skip if this title is already what's displayed, or if the URL-based
+    // movieTitle already covers it (to avoid overwriting a correct context).
+    if (!title) return
+    if (movieData?.titleKey === title) return
+    if (movieTitle && movieTitle.toLowerCase() === title.toLowerCase()) return
 
     setFetching(true)
     movieAPI.getMovieDetails(title)
       .then((data) => {
-        setMovieData(data)
+        setMovieData({ ...data, titleKey: title })
         setMovieContext({ ...data, titleKey: title })
       })
       .catch(() => {
         // silently fail — sidebar just shows default
       })
       .finally(() => setFetching(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages])
+  }, [messages, libraryMovies])
 
   // Sync from movieContext if set externally
   useEffect(() => {

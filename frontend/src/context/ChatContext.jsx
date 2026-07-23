@@ -7,6 +7,7 @@ const initialState = {
   isLoading: false,
   sessionId: crypto.randomUUID(),
   movieContext: null,
+  movieTitle: null,   // plain string — set from the ?movie= URL param
   error: null,
 }
 
@@ -20,6 +21,8 @@ function chatReducer(state, action) {
       return { ...state, error: action.payload }
     case 'SET_MOVIE_CONTEXT':
       return { ...state, movieContext: action.payload }
+    case 'SET_MOVIE_TITLE':
+      return { ...state, movieTitle: action.payload }
     case 'CLEAR_CHAT':
       return { ...initialState, sessionId: crypto.randomUUID() }
     case 'UPDATE_LAST_MESSAGE':
@@ -44,10 +47,11 @@ export function ChatProvider({ children }) {
   const setLoading = useCallback((val) => dispatch({ type: 'SET_LOADING', payload: val }), [])
   const setError   = useCallback((err) => dispatch({ type: 'SET_ERROR',   payload: err }), [])
   const setMovieContext = useCallback((ctx) => dispatch({ type: 'SET_MOVIE_CONTEXT', payload: ctx }), [])
+  const setMovieTitle   = useCallback((title) => dispatch({ type: 'SET_MOVIE_TITLE', payload: title }), [])
   const clearChat  = useCallback(() => dispatch({ type: 'CLEAR_CHAT' }), [])
 
   return (
-    <ChatContext.Provider value={{ ...state, addMessage, setLoading, setError, setMovieContext, clearChat }}>
+    <ChatContext.Provider value={{ ...state, addMessage, setLoading, setError, setMovieContext, setMovieTitle, clearChat }}>
       {children}
     </ChatContext.Provider>
   )

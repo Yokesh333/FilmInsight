@@ -1,23 +1,12 @@
 """
 kb_startup.py — Knowledge-base startup logic for FilmInsight.
 
-Called during the FastAPI lifespan to detect whether a Chroma database
-already exists, trigger automatic ingestion if movie_scripts are available,
-or emit a warning if neither is present.
-
-Decision tree
-─────────────
-  chroma_db/ exists and is populated
-      → Use existing database. Log summary.
-
-  chroma_db/ missing or empty, but movie_scripts/ has PDFs
-      → Run ingestion/ingest_movies.py as a subprocess.
-      → Block startup until ingestion completes.
-      → Continue.
-
-  Neither present
-      → Start normally.
-      → Log a clear WARNING: "No movie scripts found. The knowledge base is empty."
+Called during the FastAPI lifespan to:
+  1. Reset stale PROCESSING records (crash recovery).
+  2. Check Chroma DB state.
+  3. If Chroma is empty but movies in DB have PDFs, trigger ingestion directly
+     via IngestionService (no subprocess, no hardcoded paths).
+  4. Log clear warnings if no knowledge base is available.
 
 The application NEVER crashes due to a missing knowledge base.
 """
@@ -26,19 +15,14 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
-import sys
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger("filminsight.kb_startup")
 
-# ── Resolve paths relative to project root ────────────────────────────────────
-# Supports both local dev (project root two levels above this file's location)
-# and Docker (PROJECT_ROOT env var explicitly set in Compose / Dockerfile).
-
+# ── Resolve project root ───────────────────────────────────────────────────────
 _PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", "")).resolve()
 
-# Fallback: walk up from this file's location until we find ingestion/
 if not _PROJECT_ROOT or not (_PROJECT_ROOT / "ingestion").exists():
     _here = Path(__file__).resolve().parent  # backend/app/services/
     for candidate in [_here.parent.parent, _here.parent.parent.parent]:
@@ -52,25 +36,32 @@ CHROMA_DB_DIR: Path = Path(
 MOVIE_SCRIPTS_DIR: Path = Path(
     os.environ.get("MOVIE_SCRIPTS_DIR", str(_PROJECT_ROOT / "movie_scripts"))
 )
-INGEST_SCRIPT: Path = _PROJECT_ROOT / "ingestion" / "ingest_movies.py"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
-def initialise_knowledge_base() -> KBState:
+def initialise_knowledge_base() -> "KBState":
     """
     Inspect the environment and take the appropriate action.
 
-    Returns a :class:`KBState` describing what happened, which is stored
-    on the FastAPI app state for use by the ``/health`` endpoint.
+    Steps:
+      1. Recover stale PROCESSING records in PostgreSQL.
+      2. If Chroma is already populated → use it.
+      3. If Chroma empty but DB has UPLOADED/FAILED movies → re-ingest via IngestionService.
+      4. If Chroma empty and no DB movies → warn and continue.
+
+    Returns a :class:`KBState` describing what happened.
     """
     logger.info("  Checking knowledge-base state...")
     logger.info(f"  CHROMA_DB_DIR    : {CHROMA_DB_DIR}")
     logger.info(f"  MOVIE_SCRIPTS_DIR: {MOVIE_SCRIPTS_DIR}")
 
-    # ── Case 1: Chroma DB already exists and is non-empty ────────────────────
+    # ── Step 1: Crash recovery — reset stale PROCESSING records ─────────────
+    _reset_stale_processing()
+
+    # ── Step 2: Chroma already populated ────────────────────────────────────
     if _chroma_is_populated():
         doc_count = _chroma_doc_count()
         msg = (
@@ -80,34 +71,40 @@ def initialise_knowledge_base() -> KBState:
         logger.info(f"  ✅  {msg}")
         return KBState(status="ready", message=msg, doc_count=doc_count)
 
-    # ── Case 2: No DB yet, but PDFs are available → run ingestion ────────────
-    pdf_files = _list_pdfs()
-    if pdf_files:
+    # ── Step 3: Chroma empty — look for pending movies in PostgreSQL ─────────
+    pending_scripts = _get_pending_scripts()
+    if pending_scripts:
         logger.info(
             f"  ⚙️   No Chroma DB found. "
-            f"Found {len(pdf_files)} PDF(s) in {MOVIE_SCRIPTS_DIR}."
+            f"Found {len(pending_scripts)} pending movie(s) in PostgreSQL."
         )
-        logger.info("  ⚙️   Running ingestion pipeline. This may take several minutes...")
-        success, error_msg = _run_ingestion()
-        if success:
-            doc_count = _chroma_doc_count()
-            msg = (
-                f"Ingestion completed successfully. "
-                f"{len(pdf_files)} movie(s) processed, "
-                f"{doc_count:,} chunks stored."
-            )
+        logger.info("  ⚙️   Running ingestion pipeline via IngestionService...")
+        success_count, failure_count = _run_ingestion_for_scripts(pending_scripts)
+        doc_count = _chroma_doc_count()
+        msg = (
+            f"Startup ingestion completed. "
+            f"{success_count} succeeded, {failure_count} failed. "
+            f"{doc_count:,} chunks in Chroma."
+        )
+        if success_count > 0:
             logger.info(f"  ✅  {msg}")
             return KBState(status="ready", message=msg, doc_count=doc_count)
         else:
-            msg = f"Ingestion failed: {error_msg}. Starting with empty knowledge base."
             logger.error(f"  ❌  {msg}")
             return KBState(status="error", message=msg, doc_count=0)
 
-    # ── Case 3: Nothing available → warn and continue ─────────────────────────
+    # ── Step 4: No Chroma, no DB movies — check local PDFs as last resort ────
+    pdf_files = _list_pdfs()
+    if pdf_files:
+        logger.info(
+            f"  ⚙️   No Chroma DB or DB movies found. "
+            f"Found {len(pdf_files)} PDF(s) in {MOVIE_SCRIPTS_DIR}. "
+            "Add them via the Admin Dashboard to ingest."
+        )
+
     msg = (
-        "No movie scripts found. The knowledge base is empty. "
-        "Add screenplay PDFs to the movie_scripts/ folder and "
-        "run: python -m ingestion.ingest_movies"
+        "No knowledge base found. The system is ready to accept uploads "
+        "via the Admin Dashboard. Movies will be indexed automatically after upload."
     )
     logger.warning("  " + "=" * 58)
     logger.warning(f"  ⚠️   WARNING: {msg}")
@@ -126,14 +123,14 @@ class KBState:
 
     def __init__(self, status: str, message: str, doc_count: int) -> None:
         # status: "ready" | "empty" | "error"
-        self.status = status
-        self.message = message
+        self.status    = status
+        self.message   = message
         self.doc_count = doc_count
 
     def to_dict(self) -> dict:
         return {
-            "status": self.status,
-            "message": self.message,
+            "status":    self.status,
+            "message":   self.message,
             "doc_count": self.doc_count,
         }
 
@@ -142,11 +139,131 @@ class KBState:
 # Private helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _reset_stale_processing() -> None:
+    """
+    Find movies stuck in PROCESSING status from a previous server crash
+    and reset them to UPLOADED so they can be re-ingested.
+    """
+    try:
+        from app.db.database import SessionLocal
+        from app.models.movie_script import MovieScript
+
+        with SessionLocal() as db:
+            stale = db.query(MovieScript).filter(
+                MovieScript.status == "PROCESSING"
+            ).all()
+            if not stale:
+                return
+            for s in stale:
+                logger.warning(
+                    f"  ⚠️   Resetting stale PROCESSING → UPLOADED: '{s.title}'"
+                )
+                s.status = "UPLOADED"
+            db.commit()
+            logger.info(f"  Crash recovery: reset {len(stale)} stale PROCESSING record(s).")
+    except Exception as exc:
+        logger.warning(f"  Crash recovery failed (non-fatal): {exc}")
+
+
+def _get_pending_scripts() -> list:
+    """Return all MovieScript records with UPLOADED or FAILED status."""
+    try:
+        from app.db.database import SessionLocal
+        from app.models.movie_script import MovieScript
+
+        with SessionLocal() as db:
+            return db.query(MovieScript).filter(
+                MovieScript.status.in_(["UPLOADED", "FAILED"])
+            ).all()
+    except Exception as exc:
+        logger.warning(f"  Could not query pending scripts: {exc}")
+        return []
+
+
+def _run_ingestion_for_scripts(scripts: list) -> tuple[int, int]:
+    """
+    Directly call IngestionService for each pending script.
+    Returns (success_count, failure_count).
+    """
+    from app.services.ingestion_service import IngestionService, IngestionError
+    from app.db.database import SessionLocal
+    from app.models.movie_script import MovieScript
+
+    svc = IngestionService()
+    success_count = 0
+    failure_count = 0
+
+    for script in scripts:
+        title     = script.title
+        script_id = script.id
+        supabase_filename = script.supabase_path
+        local_path_candidate = MOVIE_SCRIPTS_DIR / (script.file_path or f"{title}.pdf")
+        local_path = local_path_candidate if local_path_candidate.exists() else None
+
+        logger.info(f"  ⚙️   Ingesting '{title}' (id={script_id})...")
+
+        # Mark PROCESSING
+        try:
+            with SessionLocal() as db:
+                s = db.query(MovieScript).filter(MovieScript.id == script_id).first()
+                if s:
+                    s.status = "PROCESSING"
+                    db.commit()
+        except Exception as exc:
+            logger.warning(f"  Could not mark PROCESSING for '{title}': {exc}")
+
+        try:
+            if supabase_filename:
+                chunks = svc.ingest_movie(
+                    movie_name=title,
+                    movie_id=script_id,
+                    supabase_filename=supabase_filename,
+                )
+            elif local_path:
+                chunks = svc.ingest_movie(
+                    movie_name=title,
+                    movie_id=script_id,
+                    local_pdf_path=local_path,
+                )
+            else:
+                raise IngestionError(
+                    f"No PDF source: supabase_path='{supabase_filename}', "
+                    f"local='{local_path_candidate}' not found."
+                )
+
+            with SessionLocal() as db:
+                s = db.query(MovieScript).filter(MovieScript.id == script_id).first()
+                if s:
+                    s.status          = "READY"
+                    s.chunks_stored   = chunks
+                    s.ingested_at     = datetime.utcnow()
+                    s.ingestion_error = None
+                    db.commit()
+
+            logger.info(f"  ✅  '{title}' ingested ({chunks} chunks).")
+            success_count += 1
+
+        except Exception as exc:
+            error_msg = str(exc)[:1000]
+            try:
+                with SessionLocal() as db:
+                    s = db.query(MovieScript).filter(MovieScript.id == script_id).first()
+                    if s:
+                        s.status          = "FAILED"
+                        s.ingestion_error = error_msg
+                        db.commit()
+            except Exception:
+                pass
+            logger.error(f"  ❌  Ingestion failed for '{title}': {error_msg}")
+            failure_count += 1
+
+    return success_count, failure_count
+
+
 def _chroma_is_populated() -> bool:
     """Return True if the Chroma DB directory exists and contains data."""
     if not CHROMA_DB_DIR.exists():
         return False
-    # A populated Chroma store has at least a chroma.sqlite3 file
     sqlite_files = list(CHROMA_DB_DIR.glob("*.sqlite3"))
     segment_dirs = [
         p for p in CHROMA_DB_DIR.rglob("*") if p.is_dir() and p != CHROMA_DB_DIR
@@ -160,16 +277,14 @@ def _chroma_doc_count() -> int:
         import chromadb
         from chromadb.config import Settings
 
-        chroma_collection = os.environ.get(
-            "CHROMA_COLLECTION_NAME", "filminsight_scripts"
-        )
-        client = chromadb.PersistentClient(
+        col_name = os.environ.get("CHROMA_COLLECTION_NAME", "filminsight_scripts")
+        client   = chromadb.PersistentClient(
             path=str(CHROMA_DB_DIR),
             settings=Settings(anonymized_telemetry=False),
         )
-        col = client.get_or_create_collection(chroma_collection)
+        col = client.get_or_create_collection(col_name)
         return col.count()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug(f"Could not count Chroma docs: {exc}")
         return 0
 
@@ -179,33 +294,3 @@ def _list_pdfs() -> list[Path]:
     if not MOVIE_SCRIPTS_DIR.exists():
         return []
     return sorted(MOVIE_SCRIPTS_DIR.glob("*.pdf"))
-
-
-def _run_ingestion() -> tuple[bool, str]:
-    """
-    Execute the ingestion script as a subprocess.
-
-    Returns ``(True, "")`` on success or ``(False, error_message)`` on failure.
-    """
-    if not INGEST_SCRIPT.exists():
-        return False, f"Ingestion script not found at {INGEST_SCRIPT}"
-
-    env = os.environ.copy()
-    env["PROJECT_ROOT"] = str(_PROJECT_ROOT)
-
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "ingestion.ingest_movies"],
-            cwd=str(_PROJECT_ROOT),
-            env=env,
-            check=False,        # we handle non-zero exit ourselves
-            capture_output=False,  # let output flow to the container logs
-            timeout=3600,       # 1-hour hard limit
-        )
-        if result.returncode == 0:
-            return True, ""
-        return False, f"Ingestion exited with code {result.returncode}"
-    except subprocess.TimeoutExpired:
-        return False, "Ingestion timed out after 1 hour"
-    except Exception as exc:  # noqa: BLE001
-        return False, str(exc)

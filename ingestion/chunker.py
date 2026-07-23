@@ -52,7 +52,7 @@ class Chunk:
         """
         meta: dict[str, Any] = {
             "chunk_id": self.chunk_id,
-            "movie": self.movie_title,
+            "movie_name": self.movie_title,
             "page_number": self.page_number,
             "source": "screenplay",
             "char_count": self.char_count,

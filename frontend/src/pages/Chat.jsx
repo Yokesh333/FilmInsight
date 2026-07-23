@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Menu, X, Info } from 'lucide-react'
@@ -9,26 +9,73 @@ import Sidebar from '../components/Sidebar'
 
 export default function Chat() {
   const [searchParams] = useSearchParams()
-  const { addMessage, setLoading, setError, sessionId, clearChat } = useChat()
+  const {
+    addMessage, setLoading, setError,
+    sessionId, clearChat,
+    setMovieTitle, setMovieContext,
+  } = useChat()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [infoOpen,    setInfoOpen]    = useState(false)
 
-  // Handle ?q= from navigation
+  // Track the last processed search-params string so we only fire once per
+  // unique (movie, q) combination even if the component re-renders.
+  const lastParamsRef = useRef('')
+
+  console.log('[TRACE][3] Chat component rendered/re-rendered — current URL params:', searchParams.toString())
+
+  // Re-run every time the URL search params change (i.e. a new movie/query).
   useEffect(() => {
-    const query = searchParams.get('q')
-    if (!query) return
+    const paramsKey = searchParams.toString()
+    console.log('[TRACE][4] Chat useEffect(searchParams) fired')
+    console.log('[TRACE][4]   paramsKey NOW     :', paramsKey)
+    console.log('[TRACE][4]   lastParamsRef WAS :', lastParamsRef.current)
+
+    if (lastParamsRef.current === paramsKey) {
+      console.log('[TRACE][4]   *** EARLY RETURN — same params as last time, nothing will happen ***')
+      return   // already handled
+    }
+    lastParamsRef.current = paramsKey
+
+    const query      = searchParams.get('q')
+    const movieParam = searchParams.get('movie')   // explicit movie title from URL
+
+    console.log('[TRACE][5] URL parsed — movie:', movieParam, '| query:', query?.slice(0, 60))
+
+    // Always start fresh so previous movie context is never reused.
+    clearChat()
+
+    // Stamp the movie title into context BEFORE sending the first message so
+    // ChatWindow.handleSend can attach it to the API call immediately.
+    if (movieParam) {
+      console.log('[TRACE][6] setMovieTitle() called with:', movieParam)
+      setMovieTitle(movieParam)
+      // Also clear stale movieContext so Sidebar re-fetches for the new movie.
+      setMovieContext(null)
+    } else {
+      console.log('[TRACE][6] No movie param — setMovieTitle(null)')
+      setMovieTitle(null)
+      setMovieContext(null)
+    }
+
+    if (!query) {
+      console.log('[TRACE][6] No query param — returning without sending message')
+      return
+    }
 
     const ask = async () => {
+      console.log('[TRACE][7] POST /chat payload:', { question: query?.slice(0, 60), sessionId, movie_name: movieParam || null })
       addMessage({ role: 'user', content: query })
       setLoading(true)
       try {
-        const data = await chatAPI.sendMessage(query, sessionId)
+        const data = await chatAPI.sendMessage(query, sessionId, movieParam || null)
+        console.log('[TRACE][8] POST /chat response received — movieTitle:', data.movieTitle, '| answer length:', data.answer?.length)
         addMessage({
           role: 'assistant',
           content: data.answer || 'No response received.',
           sources: data.sources || [],
         })
       } catch (err) {
+        console.error('[TRACE][8] POST /chat ERROR:', err.message)
         addMessage({ role: 'assistant', content: `⚠️ **Error**: ${err.message}`, sources: [] })
         setError(err.message)
       } finally {
@@ -37,7 +84,7 @@ export default function Chat() {
     }
     ask()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [searchParams])
 
   const handleNewChat = () => {
     clearChat()

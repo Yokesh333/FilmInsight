@@ -9,6 +9,7 @@ import {
 import { movieAPI, favoritesAPI, recentAPI } from '../services/api'
 import MovieCard from '../components/MovieCard'
 import { useAuth } from '../context/AuthContext'
+import { useMovies } from '../context/MovieContext'
 
 /* ── Data ─────────────────────────────────────────────────────── */
 const SUGGESTED = [
@@ -54,7 +55,7 @@ function SearchBar({ onSubmit }) {
   return (
     <form onSubmit={handleSubmit} className={`relative w-full max-w-2xl mx-auto rounded-2xl transition-all duration-300 input-glow ${focused ? 'ring-2 ring-film-red/20' : ''}`}>
       <div className={`flex items-center glass-card rounded-2xl border transition-all duration-300 ${
-        focused ? 'border-film-red/40 bg-white/5' : 'border-white/8 hover:border-white/14'
+         focused ? 'border-film-red/40 bg-white/5' : 'border-white/8 hover:border-white/14'
       }`}>
         <div className="pl-5 pr-3 flex-shrink-0">
           <motion.div animate={{ scale: focused ? 1.15 : 1, color: focused ? '#E50914' : '#5A6170' }} transition={{ duration: 0.2 }}>
@@ -119,38 +120,27 @@ function FeatureCard({ icon: Icon, title, desc, color, bg, border, index, onClic
 export default function Home() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { movies, loading, error: movieError } = useMovies()
   const [recentSearches, setRecentSearches] = useState([])
-  const [loading,        setLoading]        = useState(true)
-  const [movies,         setMovies]         = useState([])
   const [favorites,      setFavorites]      = useState(new Set())
-  const [movieError,     setMovieError]     = useState(false)
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem('fi_recent') || '[]')
     setRecentSearches(stored.slice(0, 5))
 
-    const fetchInitialData = async () => {
-        try {
-            const moviesData = await movieAPI.getOurMovies();
-            setMovies(moviesData.movies || []);
-            
-            if (user) {
-                try {
-                    const favData = await favoritesAPI.getFavorites();
-                    const favSet = new Set(favData.map(f => f.movie_title));
-                    setFavorites(favSet);
-                } catch (favErr) {
-                    console.error("Failed to fetch favorites:", favErr);
-                }
+    const fetchFavorites = async () => {
+        if (user) {
+            try {
+                const favData = await favoritesAPI.getFavorites();
+                const favSet = new Set(favData.map(f => f.movie_title));
+                setFavorites(favSet);
+            } catch (favErr) {
+                console.error("Failed to fetch favorites:", favErr);
             }
-        } catch (err) {
-            setMovieError(true);
-        } finally {
-            setLoading(false);
         }
     };
     
-    fetchInitialData();
+    fetchFavorites();
   }, [user])
 
   const handleToggleFavorite = async (movie) => {
@@ -186,6 +176,11 @@ export default function Home() {
   }
 
   const handleMovieClick = (movie) => {
+    console.log('[TRACE][1] handleMovieClick ENTERED', { title: movie.title, status: movie.status, id: movie.id })
+    if (movie.status === 'FAILED') {
+      console.log('[TRACE][1] EARLY RETURN — status is FAILED, navigate() will NOT be called')
+      return;
+    }
     if (user) {
         recentAPI.addRecent({
             movie_title: movie.title,
@@ -193,7 +188,12 @@ export default function Home() {
             poster_url: movie.poster
         }).catch(err => console.error("Failed to add recent", err));
     }
-    handleSearch(`Tell me about "${movie.title}" — plot, characters, and themes.`);
+    const q = `Tell me about "${movie.title}" — plot, characters, and themes.`
+    const updated = [q, ...recentSearches.filter(x => x !== q)].slice(0, 5)
+    localStorage.setItem('fi_recent', JSON.stringify(updated))
+    const targetUrl = `/chat?movie=${encodeURIComponent(movie.title)}&q=${encodeURIComponent(q)}`
+    console.log('[TRACE][2] navigate() CALLED with URL:', targetUrl)
+    navigate(targetUrl)
   }
 
   const removeRecent = (e, item) => {
@@ -390,7 +390,12 @@ export default function Home() {
                       onClick={() => handleMovieClick(movie)}
                     />
                   ))
-                : !movieError && Array.from({ length: 10 }).map((_, i) => <MovieSkeleton key={i} />)
+                : !movieError && (
+                    <div className="col-span-full flex flex-col items-center justify-center p-12 text-film-muted">
+                      <Film size={32} className="mb-3 opacity-50" />
+                      <p>No movies currently available.</p>
+                    </div>
+                  )
             }
           </div>
         </div>

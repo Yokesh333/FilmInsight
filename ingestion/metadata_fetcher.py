@@ -51,7 +51,7 @@ class MovieMetadata:
     def to_chroma_metadata(self) -> dict[str, Any]:
         """Return only the fields required by the Chroma schema."""
         return {
-            "movie": self.movie,
+            "movie_name": self.movie,
             "year": self.year,
             "genre": self.genre,
             "director": self.director,

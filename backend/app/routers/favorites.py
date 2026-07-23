@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/favorites', tags=['Favorites'])
 
 @router.get('', response_model=List[FavoriteMovieResponse])
-async def get_favorites(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_favorites(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get all favorite movies for the current user."""
     favorites = db.query(FavoriteMovie).filter(FavoriteMovie.user_id == current_user.id).order_by(FavoriteMovie.added_at.desc()).all()
     return favorites
 
 @router.post('', response_model=FavoriteMovieResponse)
-async def add_favorite(
+def add_favorite(
     favorite: FavoriteMovieCreate, 
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
@@ -47,7 +47,7 @@ async def add_favorite(
     return db_favorite
 
 @router.delete('/{movie_title}')
-async def remove_favorite(
+def remove_favorite(
     movie_title: str, 
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)

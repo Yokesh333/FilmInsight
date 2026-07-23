@@ -31,6 +31,7 @@ from app.models.movie_script import MovieScript
 from app.models.schemas import UploadResponse
 from app.services.ingestion_service import IngestionError, IngestionService
 from app.services.supabase_storage import upload_file_to_supabase
+from app.services.tmdb import fetch_movie_metadata
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/upload", tags=["Upload"])
@@ -92,41 +93,50 @@ def _run_ingestion_background(
             logger.error(f"[Ingestion BG] MovieScript id={script_id} not found in DB.")
             return
 
-        # ── Mark as ingesting ──────────────────────────────────────────────
-        script.status = "ingesting"
+        # ── Mark as processing ──────────────────────────────────────────────
+        script.status = "PROCESSING"
+        title = script.title
         db.commit()
-        logger.info(
-            f"[Ingestion BG] Starting ingestion for '{script.title}' "
-            f"(id={script_id}, file='{supabase_filename}')"
+        
+    logger.info(
+        f"[Ingestion BG] Starting ingestion for '{title}' "
+        f"(id={script_id}, file='{supabase_filename}')"
+    )
+
+    try:
+        svc    = IngestionService()
+        chunks = svc.ingest_from_supabase(
+            supabase_filename=supabase_filename,
+            movie_name=title,
+            movie_id=script_id,
         )
 
-        try:
-            svc    = IngestionService()
-            chunks = svc.ingest_from_supabase(
-                supabase_filename=supabase_filename,
-                movie_id=script_id,
-            )
+        # ── Success ───────────────────────────────────────────────────
+        with Session() as db:
+            script = db.query(MovieScript).filter(MovieScript.id == script_id).first()
+            if script:
+                script.status          = "READY"
+                script.chunks_stored   = chunks
+                script.ingested_at     = datetime.utcnow()
+                script.ingestion_error = None
+                db.commit()
+        logger.info(
+            f"[Ingestion BG] '{title}' ingested successfully "
+            f"({chunks} chunks stored in Chroma)."
+        )
 
-            # ── Success ───────────────────────────────────────────────────
-            script.status          = "ingested"
-            script.chunks_stored   = chunks
-            script.ingested_at     = datetime.utcnow()
-            script.ingestion_error = None
-            db.commit()
-            logger.info(
-                f"[Ingestion BG] '{script.title}' ingested successfully "
-                f"({chunks} chunks stored in Chroma)."
-            )
-
-        except (IngestionError, Exception) as exc:
-            # ── Failure ───────────────────────────────────────────────────
-            error_msg              = str(exc)[:1000]
-            script.status          = "failed"
-            script.ingestion_error = error_msg
-            db.commit()
-            logger.error(
-                f"[Ingestion BG] Ingestion failed for '{script.title}': {error_msg}"
-            )
+    except (IngestionError, Exception) as exc:
+        # ── Failure ───────────────────────────────────────────────────
+        error_msg              = str(exc)[:1000]
+        with Session() as db:
+            script = db.query(MovieScript).filter(MovieScript.id == script_id).first()
+            if script:
+                script.status          = "FAILED"
+                script.ingestion_error = error_msg
+                db.commit()
+        logger.error(
+            f"[Ingestion BG] Ingestion failed for '{title}': {error_msg}"
+        )
 
 
 # ── Upload endpoint ───────────────────────────────────────────────────────────
@@ -134,9 +144,10 @@ def _run_ingestion_background(
 @router.post("", response_model=UploadResponse)
 async def upload_screenplay(
     background_tasks: BackgroundTasks,
-    file:       UploadFile = File(...),
-    request_id: int        = Form(None),
-    db:         Session    = Depends(get_db),
+    file:           UploadFile = File(...),
+    tmdb_url:       str        = Form(...),
+    ignore_warning: bool       = Form(False),
+    request_id:     int        = Form(None),
 ) -> UploadResponse:
     """
     Upload a movie screenplay PDF.
@@ -148,12 +159,17 @@ async def upload_screenplay(
     - Optionally marks a `MovieRequest` as fulfilled via `request_id`.
 
     Status lifecycle in PostgreSQL:
-        `uploaded` → `ingesting` → `ingested` | `failed`
+        `UPLOADED` → `PROCESSING` → `READY` | `FAILED`
     """
 
     # ── Validation ────────────────────────────────────────────────────────────
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    match = re.search(r"themoviedb\.org/movie/(\d+)", tmdb_url, re.IGNORECASE)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid TMDB Movie URL.")
+    tmdb_id = int(match.group(1))
 
     contents = await file.read()
     size_mb  = len(contents) / (1024 * 1024)
@@ -163,7 +179,6 @@ async def upload_screenplay(
             detail=f"File too large: {size_mb:.1f} MB. Maximum: {MAX_SIZE_MB} MB.",
         )
 
-    title             = _parse_title(file.filename)
     supabase_filename = _sanitise_supabase_name(file.filename)
 
     # ── Upload to Supabase Storage ────────────────────────────────────────────
@@ -177,29 +192,90 @@ async def upload_screenplay(
         logger.error(f"Supabase upload error: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to upload file to storage: {exc}")
 
-    # ── Save to PostgreSQL ────────────────────────────────────────────────────
-    try:
-        script_record = MovieScript(
-            title         = title,
-            file_path     = file.filename,       # original upload name
-            supabase_path = supabase_filename,   # path in Supabase bucket
-            status        = "uploaded",
-        )
-        db.add(script_record)
+    # ── Fetch TMDB Metadata ───────────────────────────────────────────────────
+    from app.services.tmdb import fetch_movie_metadata_by_id
+    tmdb_metadata = await fetch_movie_metadata_by_id(tmdb_id)
+    if not tmdb_metadata:
+        raise HTTPException(status_code=400, detail="Could not fetch metadata from TMDB.")
 
-        # Mark linked request as fulfilled
-        if request_id:
-            req = db.query(MovieRequest).filter(MovieRequest.id == request_id).first()
-            if req:
-                req.status = "fulfilled"
+    title = tmdb_metadata.get("title") or _parse_title(file.filename)
 
-        db.commit()
-        db.refresh(script_record)
-        script_id = script_record.id
+    # ── Title Similarity Check ────────────────────────────────────────────────
+    if not ignore_warning:
+        from difflib import SequenceMatcher
+        pdf_title = _parse_title(file.filename).lower()
+        official_title = (tmdb_metadata.get("title") or "").lower()
+        
+        similarity = SequenceMatcher(None, pdf_title, official_title).ratio()
+        if similarity < 0.6:
+            raise HTTPException(
+                status_code=409, 
+                detail={"warning": f"The screenplay filename ('{file.filename}') and TMDB title ('{official_title.title()}') appear to be different. Please verify the selected TMDB movie."}
+            )
 
-    except Exception as exc:
-        logger.error(f"Database save error: {exc}")
-        raise HTTPException(status_code=500, detail="Failed to save record to database.")
+    # ── Duplicate Check ───────────────────────────────────────────────────────
+    from app.db.database import SessionLocal
+    with SessionLocal() as db:
+        existing = db.query(MovieScript).filter(MovieScript.tmdb_id == tmdb_id).first()
+
+        if existing:
+            if existing.status == "READY":
+                raise HTTPException(status_code=400, detail="Movie already exists in the library.")
+            elif existing.status == "PROCESSING":
+                raise HTTPException(status_code=400, detail="Movie is currently being processed.")
+            elif existing.status == "FAILED":
+                existing.status = "PROCESSING"
+                existing.ingestion_error = None
+                existing.file_path = file.filename
+                existing.supabase_path = supabase_filename
+                db.commit()
+                
+                settings = get_settings()
+                background_tasks.add_task(
+                    _run_ingestion_background,
+                    script_id=existing.id,
+                    supabase_filename=supabase_filename,
+                    db_url=settings.DATABASE_URL,
+                )
+                
+                logger.info(f"Upload retried for FAILED record: '{title}' (id={existing.id}).")
+                return UploadResponse(
+                    filename = file.filename,
+                    status   = "PROCESSING",
+                    message  = "Upload retried. Ingestion into the local Chroma vector database has restarted.",
+                )
+
+        # ── Save to PostgreSQL ────────────────────────────────────────────────────
+        try:
+            script_record = MovieScript(
+                title         = title,
+                file_path     = file.filename,       # original upload name
+                supabase_path = supabase_filename,   # path in Supabase bucket
+                status        = "UPLOADED",
+                poster_url    = tmdb_metadata.get("poster_url"),
+                backdrop_url  = tmdb_metadata.get("backdrop_url"),
+                tmdb_id       = tmdb_metadata.get("tmdb_id"),
+                overview      = tmdb_metadata.get("overview"),
+                release_date  = tmdb_metadata.get("release_date"),
+                genres        = tmdb_metadata.get("genres"),
+                runtime       = tmdb_metadata.get("runtime"),
+                rating        = tmdb_metadata.get("rating"),
+            )
+            db.add(script_record)
+
+            # Mark linked request as fulfilled
+            if request_id:
+                req = db.query(MovieRequest).filter(MovieRequest.id == request_id).first()
+                if req:
+                    req.status = "fulfilled"
+
+            db.commit()
+            db.refresh(script_record)
+            script_id = script_record.id
+
+        except Exception as exc:
+            logger.error(f"Database save error: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to save record to database.")
 
     # ── Schedule background ingestion ─────────────────────────────────────────
     settings = get_settings()
@@ -217,7 +293,7 @@ async def upload_screenplay(
 
     return UploadResponse(
         filename = file.filename,
-        status   = "uploaded",
+        status   = "UPLOADED",
         message  = (
             f'"{title}" uploaded to Supabase and saved to database. '
             f"Ingestion into the local Chroma vector database has started in the background. "

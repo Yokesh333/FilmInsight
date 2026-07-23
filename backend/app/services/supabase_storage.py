@@ -23,7 +23,7 @@ def upload_file_to_supabase(bucket_name: str, file_path: str, file_bytes: bytes)
         supabase.storage.from_(bucket_name).upload(
             file=file_bytes,
             path=file_path,
-            file_options={"content-type": "application/pdf"}
+            file_options={"content-type": "application/pdf", "upsert": "true"}
         )
         return file_path
     except Exception as e:

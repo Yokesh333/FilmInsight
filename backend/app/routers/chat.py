@@ -41,7 +41,6 @@ def _parse_sources(raw: list) -> List[SourceDocument]:
 async def chat(
     body: ChatRequest,
     rag:  RAGService = Depends(get_rag_service),
-    db:   Session    = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ):
     """
@@ -81,16 +80,18 @@ async def chat(
     answer  = result.get("answer", "I could not generate a response. Please try again.")
     sources = _parse_sources(result.get("sources", []))
 
-    # Persist to chat history
+    # Persist to chat history using a short-lived session
     try:
-        history_record = ChatHistory(
-            user_id    = user.id if user else None,
-            movie_name = body.movie_name,
-            question   = body.question,
-            ai_response= answer,
-        )
-        db.add(history_record)
-        db.commit()
+        from app.db.database import SessionLocal
+        with SessionLocal() as db:
+            history_record = ChatHistory(
+                user_id    = user.id if user else None,
+                movie_name = body.movie_name,
+                question   = body.question,
+                ai_response= answer,
+            )
+            db.add(history_record)
+            db.commit()
     except Exception as e:
         logger.error(f"Failed to save chat history: {e}")
 

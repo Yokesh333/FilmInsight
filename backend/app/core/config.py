@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # ── TMDb ─────────────────────────────────────────────────────────────────
     TMDB_API_KEY:  str = ""
-    TMDB_BASE_URL: str = "https://api.themoviedb.org/3"
+    TMDB_BASE_URL: str = "https://api.tmdb.org/3"
     TMDB_IMG_BASE: str = "https://image.tmdb.org/t/p/w500"
 
     # ── OMDb ─────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     OMDB_BASE_URL: str = "http://www.omdbapi.com"
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5000"]
+    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5000", "http://localhost:3003"]
 
     # ── Knowledge-base paths ──────────────────────────────────────────────────
     # Override via environment variables (set in docker-compose or Jenkinsfile).

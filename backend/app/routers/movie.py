@@ -15,7 +15,7 @@ Fetches live data from TMDb and OMDb APIs:
 import asyncio
 import logging
 import httpx
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from app.core.config import get_settings
 from app.models.schemas import MovieResponse
 
@@ -649,70 +649,35 @@ async def list_movies():
     return {"movies": [t.title() for t in titles], "total": len(titles)}
 
 
-# Titles from the PDF scripts directory (canonical search strings for TMDb)
-OUR_MOVIE_TITLES = [
-    "Inception", "Interstellar", "The Dark Knight", "The Dark Knight Rises",
-    "Batman Begins", "Memento", "Tenet", "Oppenheimer", "The Prestige", "Dunkirk",
-    "500 Days of Summer", "Deadpool & Wolverine", "Spider-Man: No Way Home",
-    "Beauty and the Beast", "Bones and All", "Superman", "Frankenstein",
-]
+from app.db.database import get_db
+from sqlalchemy.orm import Session
+from app.models.movie_script import MovieScript
 
 
 @router.get('/our-movies', tags=['Movie'])
-async def get_our_movies():
+def get_our_movies(db: Session = Depends(get_db)):
     """
     Returns the movies from our PDF script library with real TMDB posters,
     ratings, and metadata. Used by the Home page featured grid.
     """
-    settings = get_settings()
-    tmdb_key = settings.TMDB_API_KEY or "239967a7888fc811609db5aa3b554431"
-
-    async def fetch_one(title: str) -> dict | None:
-        result = await _tmdb_search(title, tmdb_key)
-        extras  = _get_extras(title)
-        
-        # If TMDb fails, fallback to OMDb for the home page cards
-        if not result:
-            omdb_key = settings.OMDB_API_KEY or "72bf0fb9"
-            omdb = await _omdb_fetch(title, None, None, omdb_key)
-            if not omdb or omdb.get("Response") == "False":
-                return None
-                
-            try:
-                rating = float(omdb.get("imdbRating", 0)) if omdb.get("imdbRating", "N/A") != "N/A" else 0.0
-            except:
-                rating = 0.0
-                
-            return {
-                "id":       omdb.get("imdbID") or title,
-                "title":    omdb.get("Title", title),
-                "overview": omdb.get("Plot", ""),
-                "year":     omdb.get("Year", "")[:4] if omdb.get("Year") else None,
-                "rating":   rating,
-                "poster":   omdb.get("Poster") if omdb.get("Poster") != "N/A" else None,
-                "backdrop": None,
-                "has_script": True,
-                "trivia_count": len(extras.get("trivia", [])),
-                "quotes_count": len(extras.get("quotes", [])),
-            }
-
-        poster_path   = result.get("poster_path")
-        backdrop_path = result.get("backdrop_path")
-        release = result.get("release_date", "")
-        return {
-            "id":       result.get("id"),
-            "title":    result.get("title", title),
-            "overview": result.get("overview", ""),
-            "year":     release[:4] if release else None,
-            "rating":   round(result.get("vote_average", 0), 1),
-            "poster":   f"{TMDB_IMG}{poster_path}"     if poster_path   else None,
-            "backdrop": f"{TMDB_IMG_HD}{backdrop_path}" if backdrop_path else None,
+    scripts = db.query(MovieScript).filter(MovieScript.status.in_(["UPLOADED", "PROCESSING", "READY", "FAILED"])).all()
+    
+    movies = []
+    for script in scripts:
+        movies.append({
+            "id":       script.tmdb_id or script.id,
+            "title":    script.title,
+            "overview": script.overview or "",
+            "year":     script.release_date[:4] if script.release_date else None,
+            "rating":   script.rating or 0.0,
+            "poster":   script.poster_url,
+            "backdrop": script.backdrop_url,
             "has_script": True,
-            "trivia_count": len(extras.get("trivia", [])),
-            "quotes_count": len(extras.get("quotes", [])),
-        }
+            "trivia_count": 0,
+            "quotes_count": 0,
+            "status": script.status,
+            "ingestion_error": script.ingestion_error,
+        })
 
-    results = await asyncio.gather(*[fetch_one(t) for t in OUR_MOVIE_TITLES])
-    movies  = [m for m in results if m is not None]
     return {"movies": movies, "total": len(movies)}
 

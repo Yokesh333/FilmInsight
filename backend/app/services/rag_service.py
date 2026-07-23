@@ -31,61 +31,45 @@ logger = logging.getLogger(__name__)
 
 _embedder   = None
 _chroma_col = None   # chromadb.Collection
-
+import threading
+_chroma_lock = threading.Lock()
 
 def _get_embedder():
-    """Load the HuggingFace embedding model once per process."""
-    global _embedder
-    if _embedder is None:
-        try:
-            from langchain_huggingface import HuggingFaceEmbeddings
-        except ImportError:
-            from langchain.embeddings import HuggingFaceEmbeddings  # type: ignore
-
-        from app.core.config import get_settings
-        s      = get_settings()
-        model  = getattr(s, "EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
-        device = getattr(s, "EMBEDDING_DEVICE", "cpu")
-
-        logger.info(f"[RAG] Loading embedding model: {model} (device={device})")
-        _embedder = HuggingFaceEmbeddings(
-            model_name=model,
-            model_kwargs={"device": device},
-            encode_kwargs={"normalize_embeddings": True},
-        )
-        logger.info("[RAG] Embedding model ready.")
-    return _embedder
+    from app.services.embedding_service import get_embedder
+    return get_embedder()
 
 
 def _get_chroma_collection():
     """Open the persistent Chroma collection once per process."""
     global _chroma_col
     if _chroma_col is None:
-        import chromadb
-        from chromadb.config import Settings
-        from app.core.config import get_settings
+        with _chroma_lock:
+            if _chroma_col is None:
+                import chromadb
+                from chromadb.config import Settings
+                from app.core.config import get_settings
 
-        s       = get_settings()
-        chroma_dir = Path(
-            os.environ.get("CHROMA_DB_DIR", "")
-            or getattr(s, "CHROMA_DB_DIR", "")
-            or _resolve_chroma_dir()
-        )
-        col_name = (
-            os.environ.get("CHROMA_COLLECTION_NAME", "")
-            or getattr(s, "CHROMA_COLLECTION_NAME", "filminsight_scripts")
-        )
+                s       = get_settings()
+                chroma_dir = Path(
+                    os.environ.get("CHROMA_DB_DIR", "")
+                    or getattr(s, "CHROMA_DB_DIR", "")
+                    or _resolve_chroma_dir()
+                )
+                col_name = (
+                    os.environ.get("CHROMA_COLLECTION_NAME", "")
+                    or getattr(s, "CHROMA_COLLECTION_NAME", "filminsight_scripts")
+                )
 
-        logger.info(f"[RAG] Opening Chroma at: {chroma_dir}  collection='{col_name}'")
-        client      = chromadb.PersistentClient(
-            path=str(chroma_dir),
-            settings=Settings(anonymized_telemetry=False),
-        )
-        _chroma_col = client.get_or_create_collection(
-            name=col_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-        logger.info(f"[RAG] Chroma ready — {_chroma_col.count()} documents.")
+                logger.info(f"[RAG] Opening Chroma at: {chroma_dir}  collection='{col_name}'")
+                client      = chromadb.PersistentClient(
+                    path=str(chroma_dir),
+                    settings=Settings(anonymized_telemetry=False),
+                )
+                _chroma_col = client.get_or_create_collection(
+                    name=col_name,
+                    metadata={"hnsw:space": "cosine"},
+                )
+                logger.info(f"[RAG] Chroma ready — {_chroma_col.count()} documents.")
     return _chroma_col
 
 
@@ -146,37 +130,53 @@ class RAGService:
         dict with keys: ``answer``, ``sources``, ``session_id``, ``movie_title``
         """
         t0 = time.monotonic()
+        
+        logger.info("--- CHAT TRACE START ---")
+        logger.info(f"Incoming question: {question}")
+        logger.info(f"Detected movie name: {movie_name}")
 
-        # Step 1 — Embed the query
-        query_vector = self._embed_query(question)
+        try:
+            import asyncio
+            
+            # Step 1 — Embed the query
+            query_vector = await asyncio.to_thread(self._embed_query, question)
+            logger.info(f"Generated embedding (length: {len(query_vector)})")
 
-        # Step 2 — Retrieve top-K chunks from Chroma
-        raw_results = self._retrieve(query_vector, movie_name=movie_name)
+            # Step 2 — Retrieve top-K chunks from Chroma
+            raw_results = await asyncio.to_thread(self._retrieve, query_vector, movie_name)
 
-        # Step 3 — Deduplicate & format context
-        chunks = self._deduplicate(raw_results)
+            # Step 3 — Deduplicate & format context
+            chunks = self._deduplicate(raw_results)
+            logger.info(f"Retrieved chunk count: {len(chunks)}")
 
-        # Step 4 — Build RAG prompt
-        prompt = self._build_prompt(question, chunks, movie_name)
+            # Step 4 — Build RAG prompt
+            prompt = self._build_prompt(question, chunks, movie_name)
+            logger.info(f"Prompt length: {len(prompt)}")
 
-        # Step 5 — Call Groq
-        answer = await self._call_groq(prompt)
+            # Step 5 — Call Groq
+            answer = await self._call_groq(prompt)
 
-        # Step 6 — Format source documents
-        sources = self._format_sources(chunks)
+            # Step 6 — Format source documents
+            sources = self._format_sources(chunks)
 
-        elapsed_ms = round((time.monotonic() - t0) * 1000)
-        logger.info(
-            f"[RAG] Query answered in {elapsed_ms}ms  "
-            f"(chunks={len(chunks)}, movie={movie_name or 'any'})"
-        )
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            logger.info(
+                f"[RAG] Query answered in {elapsed_ms}ms  "
+                f"(chunks={len(chunks)}, movie={movie_name or 'any'})"
+            )
+            logger.info("--- CHAT TRACE END ---")
 
-        return {
-            "answer":      answer,
-            "sources":     sources,
-            "session_id":  session_id,
-            "movie_title": movie_name,
-        }
+            return {
+                "answer":      answer,
+                "sources":     sources,
+                "session_id":  session_id,
+                "movie_title": movie_name,
+            }
+        except Exception as exc:
+            import traceback
+            logger.error(f"RAG PIPELINE EXCEPTION: {exc}")
+            logger.error(traceback.format_exc())
+            raise
 
     def chroma_doc_count(self) -> int:
         """Return the total number of documents in Chroma (for health checks)."""
@@ -226,7 +226,9 @@ class RAGService:
 
         # Metadata filter: restrict to a specific movie when requested
         if movie_name:
-            kwargs["where"] = {"movie_name": {"$eq": movie_name}}
+            kwargs["where"] = {"movie_name": movie_name}
+        
+        logger.info(f"Chroma where filter: {kwargs.get('where')}")
 
         try:
             raw = col.query(**kwargs)
@@ -365,6 +367,8 @@ class RAGService:
             "temperature": 0.4,
             "max_tokens":  1024,
         }
+        
+        logger.info(f"Groq request: {payload}")
 
         try:
             async with httpx.AsyncClient(
@@ -385,6 +389,7 @@ class RAGService:
                 )
 
             data   = resp.json()
+            logger.info(f"Groq response: {data}")
             answer = (
                 data.get("choices", [{}])[0]
                     .get("message", {})
